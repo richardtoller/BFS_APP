@@ -37,6 +37,7 @@ function build(root) {
     <div class="v-bar v-top">
       <button class="v-btn" data-v="close" aria-label="Close score">✕</button>
       <div class="v-title"><strong></strong><span></span></div>
+      <button class="v-btn v-notes-btn" data-v="notes" aria-label="Notes" title="Notes">📝</button>
       <button class="v-btn" data-v="fit" aria-label="Fit width or whole page"></button>
       <button class="v-btn" data-v="fs" aria-label="Full screen">⛶</button>
     </div>
@@ -46,10 +47,21 @@ function build(root) {
       <button class="v-btn v-wide" data-v="next">Next ›</button>
     </div>
     <div class="v-zoom" hidden></div>
-    <div class="v-msg" hidden></div>`;
+    <div class="v-msg" hidden></div>
+    <section class="v-notes" hidden aria-label="Notes">
+      <div class="v-notes-head"><strong>Notes</strong><span class="v-notes-for"></span><button class="v-btn v-wide" data-v="notes-close">Done</button></div>
+      <textarea class="v-notes-text" rows="5" placeholder="Add notes for this score, e.g. key, repeats, who sings which verse…"></textarea>
+    </section>`;
   V.root = root;
   V.scroll = root.querySelector('.v-scroll');
   V.pagesEl = root.querySelector('.v-pages');
+  V.notesEl = root.querySelector('.v-notes');
+  V.notesText = root.querySelector('.v-notes-text');
+  V.notesText.addEventListener('input', () => {
+    const item = V.items[V.index];
+    V.opts.onNotes?.(item.songId, V.notesText.value);
+    updateNotesBtn();
+  });
 
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-v]');
@@ -59,6 +71,8 @@ function build(root) {
     if (a === 'close') V.opts.onClose();
     else if (a === 'fit') setFit(V.fit === 'width' ? 'page' : 'width');
     else if (a === 'fs') toggleFullscreen();
+    else if (a === 'notes') toggleNotes();
+    else if (a === 'notes-close') toggleNotes(false);
     else if (a === 'prev') go(V.index - 1);
     else if (a === 'next') go(V.index + 1);
   });
@@ -86,7 +100,8 @@ function build(root) {
 /* ---------- open / close ---------- */
 
 // opts: { items: [{songId, title, notes?: [string]}], index, label, fit, fullscreen,
-//         getSong(id) -> Promise<{title, kind, blob}>, onFit(fit), onClose() }
+//         getSong(id) -> Promise<{title, kind, blob}>, getNotes(id) -> string, onNotes(id, text),
+//         onFit(fit), onClose() }
 export function openViewer(root, opts) {
   if (!V.root) build(root);
   V.opts = opts;
@@ -94,6 +109,7 @@ export function openViewer(root, opts) {
   V.fit = opts.fit || 'width';
   V.open = true;
   root.hidden = false;
+  if (V.notesEl) V.notesEl.hidden = true;
   document.body.classList.add('viewer-open');
   // Must happen synchronously inside the tap that opened the viewer.
   if (opts.fullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -223,8 +239,30 @@ function go(index) {
   showBars();
 }
 
+function toggleNotes(show = V.notesEl.hidden) {
+  V.notesEl.hidden = !show;
+  if (show) {
+    const item = V.items[V.index];
+    V.notesText.value = V.opts.getNotes?.(item.songId) ?? '';
+    V.root.querySelector('.v-notes-for').textContent = item.title;
+    clearTimeout(V.barsTimer);
+    V.root.classList.add('bars');
+  } else {
+    V.notesText.blur();
+    showBars();
+  }
+}
+
+function updateNotesBtn() {
+  const item = V.items[V.index];
+  const has = !!(V.opts.getNotes?.(item.songId) ?? '').trim();
+  V.root.querySelector('[data-v="notes"]').classList.toggle('has-notes', has);
+}
+
 function updateBars() {
   const item = V.items[V.index];
+  updateNotesBtn();
+  if (!V.notesEl.hidden) toggleNotes(true);
   V.root.querySelector('.v-title strong').textContent = item.title;
   V.root.querySelector('.v-title span').textContent =
     V.items.length > 1 ? `${V.index + 1} of ${V.items.length}${V.opts.label ? ' · ' + V.opts.label : ''}` : '';
@@ -249,7 +287,7 @@ function updatePageLabel() {
 function showBars() {
   V.root.classList.add('bars');
   clearTimeout(V.barsTimer);
-  V.barsTimer = setTimeout(() => V.root.classList.remove('bars'), 3000);
+  V.barsTimer = setTimeout(() => { if (V.notesEl.hidden) V.root.classList.remove('bars'); }, 3000);
 }
 function toggleBars() {
   if (V.root.classList.contains('bars')) { clearTimeout(V.barsTimer); V.root.classList.remove('bars'); }

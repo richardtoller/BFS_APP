@@ -324,3 +324,28 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .sub-list li { margin: 2px 0; }
 .file-link { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: -4px 0 0; overflow-wrap: anywhere; }
 .link.small { font-size: 13.5px; }
+
+/* notes */
+.row-notes {
+  display: block; font-size: 13px; color: var(--muted); font-style: italic;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.field textarea { resize: vertical; line-height: 1.4; }
+.v-notes-btn { position: relative; font-size: 18px; }
+.v-notes-btn.has-notes::after {
+  content: ""; position: absolute; top: 9px; right: 8px; width: 8px; height: 8px;
+  border-radius: 50%; background: #ffb74d;
+}
+.v-notes {
+  position: absolute; z-index: 4; left: 0; right: 0; margin: 0 auto;
+  bottom: calc(56px + env(safe-area-inset-bottom)); width: min(100% - 16px, 560px);
+  padding: 8px 10px 10px; border-radius: 14px;
+  background: rgb(24 24 24 / .94); backdrop-filter: blur(6px); box-shadow: 0 8px 30px rgb(0 0 0 / .4);
+}
+.v-notes-head { display: flex; align-items: center; gap: 8px; }
+.v-notes-head strong { font-size: 15px; }
+.v-notes-for { flex: 1; min-width: 0; color: #cccccc; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-notes-text {
+  width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid #555; border-radius: 10px;
+  background: #111; color: #f2f2f2; font: 16px/1.45 system-ui, sans-serif; resize: vertical; max-height: 40vh;
+}
