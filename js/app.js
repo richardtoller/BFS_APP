@@ -16,7 +16,14 @@ const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { we
 const SCORE_EXT = /\.(pdf|png|jpe?g|webp|gif)$/i;
 const XMAS = /christmas|xmas|carol|\bno[eë]l\b|nowell|advent|nativity|bethlehem|manger|santa|jingle|sleigh|reindeer|rudolph|mistletoe|holly|wenceslas|while shepherds|wise men|three kings|silent night|holy night|stille nacht|frosty|snowman|winter wonderland|let it snow|yule|emmanuel|immanuel|little donkey|all ye faithful|adeste|herald angels|joy to the world|midwinter|god rest ye|deck the hall|little town|royal david|twelve days|ding dong merrily|drummer boy|mary'?s boy child|it came upon|in dulci|gaudete|coventry|cherry tree|angels from the realms|infant holy|tannenbaum|feliz navidad|mince pie/i;
 
-const DEFAULT_CATEGORIES = () => [{ id: 'current', name: 'Current' }, { id: 'christmas', name: 'Christmas' }, { id: 'general', name: 'Non-Christmas' }];
+const DEFAULT_CATEGORIES = () => [{ id: 'current', name: 'Current' }, { id: 'christmas', name: 'Christmas' }];
+
+// Earlier versions had a Non-Christmas category (id 'general'); those songs are now just uncategorised.
+function dropNonChristmas() {
+  state.categories = state.categories.filter(c => c.id !== 'general');
+  for (const s of Object.values(state.songs)) s.cats = s.cats.filter(c => c !== 'general');
+  for (const b of Object.values(state.pending || {})) b.cats = (b.cats || []).filter(c => c !== 'general');
+}
 
 /* ---------- state ---------- */
 
@@ -31,6 +38,11 @@ async function loadState() {
   if (!state.addedCurrent) {
     if (!state.categories.some(c => c.id === 'current')) state.categories.unshift({ id: 'current', name: 'Current' });
     state.addedCurrent = true;
+    save();
+  }
+  if (!state.removedNonChristmas) {
+    dropNonChristmas();
+    state.removedNonChristmas = true;
     save();
   }
 }
@@ -207,8 +219,8 @@ function countByCat() {
 }
 
 // Tag colours: fixed for the built-in categories, then a cycle for any you add.
-const FIXED_COLOURS = { christmas: 'red', current: 'blue', general: 'green' };
-const EXTRA_COLOURS = ['amber', 'purple', 'teal'];
+const FIXED_COLOURS = { christmas: 'red', current: 'blue' };
+const EXTRA_COLOURS = ['green', 'amber', 'purple', 'teal'];
 function catColour(id) {
   if (FIXED_COLOURS[id]) return FIXED_COLOURS[id];
   const extras = state.categories.filter(c => !FIXED_COLOURS[c.id]);
@@ -697,7 +709,7 @@ async function renderLibrary() {
       </ul>
       <button class="btn" data-act="cat-add">+ Add category</button>
       ${all.length ? `<button class="btn" data-act="auto-cat">Re-guess Christmas songs…</button>` : ''}
-      <p class="hint">Use <b>Current</b> for the songs you're rehearsing now: tap ⋯ beside a song, or <b>Select</b> several on the Songs tab, then <b>Category</b>. New songs are sorted automatically: titles such as “Silent Night” or “Jingle Bells” go in Christmas, everything else in Non-Christmas. To fix one, tap ⋯ beside it, or use <b>Select</b> on the Songs tab to change many at once.</p>
+      <p class="hint">Use <b>Current</b> for the songs you're rehearsing now: tap ⋯ beside a song, or <b>Select</b> several on the Songs tab, then <b>Category</b>. New songs whose titles look Christmassy, such as “Silent Night” or “Jingle Bells”, go in Christmas automatically; everything else starts uncategorised. To fix one, tap ⋯ beside it, or use <b>Select</b> on the Songs tab to change many at once.</p>
     </section>
     <section class="card">
       <h2>Viewing</h2>
@@ -737,9 +749,9 @@ const sameKey = (oldKey, key) => oldKey === key || (!oldKey.includes('/') && key
 const titleFromFile = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 function guessCategory(text) {
-  return XMAS.test(text) ? ['christmas'] : ['general'];
+  return XMAS.test(text) ? ['christmas'] : [];
 }
-const hasDefaultCats = () => state.categories.some(c => c.id === 'christmas') && state.categories.some(c => c.id === 'general');
+const hasDefaultCats = () => state.categories.some(c => c.id === 'christmas');
 
 async function importFiles(fileList) {
   const all = [...fileList];
@@ -812,7 +824,7 @@ async function importFiles(fileList) {
       <ul class="sub-list">${subs.map(([name, n]) => `<li><b>${esc(name)}</b> <span class="muted small">${plural(n, 'score')}</span></li>`).join('')}</ul>
       <p class="muted small">To add one, tap <b>Import a sub-folder</b> and open that folder in the picker.</p>
       <button class="btn" data-act="import-folder">Import a sub-folder…</button>` : ''}
-    ${added && hasDefaultCats() ? `<p class="muted small">New songs were sorted into Christmas or Non-Christmas from their titles. Check the Christmas list and fix any mistakes with ⋯ or Select.</p>` : ''}
+    ${added && hasDefaultCats() ? `<p class="muted small">Songs that look Christmassy from their titles were put in Christmas. Check the Christmas list and fix any mistakes with ⋯ or Select.</p>` : ''}
     ${missing.length ? `<p>${plural(missing.length, 'song')} in the app ${missing.length === 1 ? 'is' : 'are'} no longer in that folder.</p>
       <button class="btn" data-act="remove-missing">Remove ${missing.length === 1 ? 'it' : 'them'} from the app</button>` : ''}
     <button class="btn primary" data-act="close-sheet">OK</button>`, { onClose: render });
@@ -869,6 +881,7 @@ async function restoreBackup(file) {
     if (at >= 0) state.programmes[at] = p; else state.programmes.push(p);
   }
   if (data.settings) state.settings = { ...state.settings, ...data.settings };
+  dropNonChristmas(); // older backups include it
   await flush();
   toast(`Restored ${plural(data.programmes.length, 'programme')}`);
   render();
@@ -1009,10 +1022,9 @@ document.addEventListener('click', e => {
       });
     case 'cat-add': return categorySheet();
     case 'auto-cat':
-      return confirmSheet('Re-guess Christmas songs?', 'Every song is put in Christmas or Non-Christmas based on its title and folder. Any changes you made to those two categories will be replaced. Other categories are kept.', 'Re-guess', () => {
-        if (!state.categories.some(c => c.id === 'christmas')) state.categories.unshift({ id: 'christmas', name: 'Christmas' });
-        if (!state.categories.some(c => c.id === 'general')) state.categories.splice(1, 0, { id: 'general', name: 'Non-Christmas' });
-        for (const s of songs()) s.cats = [...s.cats.filter(c => c !== 'christmas' && c !== 'general'), ...guessCategory(s.key + ' ' + s.title)];
+      return confirmSheet('Re-guess Christmas songs?', 'Every song whose title or folder looks Christmassy is put in Christmas, and every other song is taken out of it. Any changes you made to the Christmas category will be replaced. Other categories are kept.', 'Re-guess', () => {
+        if (!state.categories.some(c => c.id === 'christmas')) state.categories.splice(1, 0, { id: 'christmas', name: 'Christmas' });
+        for (const s of songs()) s.cats = [...s.cats.filter(c => c !== 'christmas'), ...guessCategory(s.key + ' ' + s.title)];
         return flush();
       });
     case 'backup': return downloadBackup();
