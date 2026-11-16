@@ -285,24 +285,38 @@ function songSheet(id) {
   const s = state.songs[id];
   if (!s) return;
   const progs = state.programmes.filter(p => p.items.some(i => i.songId === id));
+  const fileName = s.file.split('/').pop();
+  const fileTitle = titleFromFile(fileName);
   openSheet(`
-    <h2>${esc(s.title)}</h2>
-    <label class="field">Title<input id="s-title" value="${esc(s.title)}"></label>
+    <h2 id="s-head">${esc(s.title)}</h2>
+    <label class="field">Name in the app<input id="s-title" value="${esc(s.title)}" autocomplete="off" enterkeyhint="done"></label>
+    <div class="file-link">
+      <span class="muted small">Linked to the file <b>${esc(s.file)}</b> · ${s.kind === 'pdf' ? 'PDF' : 'Image'} · ${fmtSize(s.size)}</span>
+      <button class="link small" id="s-reset" ${s.title === fileTitle ? 'hidden' : ''}>Use the file name</button>
+    </div>
+    <p class="hint">Renaming only changes the name shown here. The file itself isn't renamed, and it stays linked, so re-importing keeps your name.</p>
     <div class="field">Categories
       <div class="chips wrap">${state.categories.map(c =>
         `<button class="chip ${s.cats.includes(c.id) ? 'on' : ''}" data-toggle-cat="${c.id}">${esc(c.name)}</button>`).join('')}</div>
     </div>
-    <p class="muted small">${esc(s.file)} · ${s.kind === 'pdf' ? 'PDF' : 'Image'} · ${fmtSize(s.size)}</p>
     ${progs.length ? `<p class="muted small">In: ${progs.map(p => esc(p.name)).join(', ')}</p>` : ''}
     <div class="stack">
       <button class="btn primary" data-act="sheet-open" data-id="${id}">Open score</button>
       <button class="btn" data-act="sheet-addprog" data-id="${id}">Add to programme…</button>
       <button class="btn danger" data-act="sheet-delsong" data-id="${id}">Remove from app</button>
     </div>`, { onClose: render });
-  $('#s-title').addEventListener('change', e => {
-    const t = e.target.value.trim();
-    if (t) { s.title = t; save(); }
-  });
+  const input = $('#s-title');
+  const setTitle = t => {
+    s.title = t;
+    $('#s-head').textContent = t;
+    $('#s-reset').hidden = t === fileTitle;
+    save();
+  };
+  // Save as you type, so closing the sheet straight away doesn't lose the new name.
+  input.addEventListener('input', () => { const t = input.value.trim(); if (t) setTitle(t); });
+  input.addEventListener('change', () => { if (!input.value.trim()) input.value = s.title; });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+  $('#s-reset').addEventListener('click', () => { input.value = fileTitle; setTitle(fileTitle); });
   $('#sheet-body').addEventListener('click', e => {
     const b = e.target.closest('[data-toggle-cat]');
     if (!b) return;
