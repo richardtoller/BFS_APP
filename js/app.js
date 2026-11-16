@@ -16,7 +16,7 @@ const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { we
 const SCORE_EXT = /\.(pdf|png|jpe?g|webp|gif)$/i;
 const XMAS = /christmas|xmas|carol|\bno[eë]l\b|nowell|advent|nativity|bethlehem|manger|santa|jingle|sleigh|reindeer|rudolph|mistletoe|holly|wenceslas|while shepherds|wise men|three kings|silent night|holy night|stille nacht|frosty|snowman|winter wonderland|let it snow|yule|emmanuel|immanuel|little donkey|all ye faithful|adeste|herald angels|joy to the world|midwinter|god rest ye|deck the hall|little town|royal david|twelve days|ding dong merrily|drummer boy|mary'?s boy child|it came upon|in dulci|gaudete|coventry|cherry tree|angels from the realms|infant holy|tannenbaum|feliz navidad|mince pie/i;
 
-const DEFAULT_CATEGORIES = () => [{ id: 'christmas', name: 'Christmas' }, { id: 'general', name: 'Non-Christmas' }];
+const DEFAULT_CATEGORIES = () => [{ id: 'current', name: 'Current' }, { id: 'christmas', name: 'Christmas' }, { id: 'general', name: 'Non-Christmas' }];
 
 /* ---------- state ---------- */
 
@@ -27,6 +27,12 @@ async function loadState() {
   state = await db.get('kv', 'state').catch(() => null);
   if (!state) state = { categories: DEFAULT_CATEGORIES(), songs: {}, programmes: [], settings: {} };
   state.settings = { fit: 'width', fullscreen: true, ...state.settings };
+  // Added in a later version: give existing libraries the Current category once (it can be deleted).
+  if (!state.addedCurrent) {
+    if (!state.categories.some(c => c.id === 'current')) state.categories.unshift({ id: 'current', name: 'Current' });
+    state.addedCurrent = true;
+    save();
+  }
 }
 
 let saveTimer = 0;
@@ -663,7 +669,7 @@ async function renderLibrary() {
       </ul>
       <button class="btn" data-act="cat-add">+ Add category</button>
       ${all.length ? `<button class="btn" data-act="auto-cat">Re-guess Christmas songs…</button>` : ''}
-      <p class="hint">New songs are sorted automatically: titles such as “Silent Night” or “Jingle Bells” go in Christmas, everything else in Non-Christmas. To fix one, tap ⋯ beside it, or use <b>Select</b> on the Songs tab to change many at once.</p>
+      <p class="hint">Use <b>Current</b> for the songs you're rehearsing now: tap ⋯ beside a song, or <b>Select</b> several on the Songs tab, then <b>Category</b>. New songs are sorted automatically: titles such as “Silent Night” or “Jingle Bells” go in Christmas, everything else in Non-Christmas. To fix one, tap ⋯ beside it, or use <b>Select</b> on the Songs tab to change many at once.</p>
     </section>
     <section class="card">
       <h2>Viewing</h2>
