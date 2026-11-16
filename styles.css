@@ -1,13 +1,13 @@
 :root {
-  --bg: #f6f2ea;
+  --bg: #f3f3f7;
   --surface: #ffffff;
-  --surface-2: #efe9dd;
-  --ink: #221d19;
-  --muted: #6f655b;
-  --line: #e1d8c8;
-  --accent: #5c1a26;
+  --surface-2: #e9e9f1;
+  --ink: #1d1d2b;
+  --muted: #62627a;
+  --line: #dcdce8;
+  --accent: #52527a;
   --accent-ink: #ffffff;
-  --accent-soft: #f3e3e5;
+  --accent-soft: #e6e6f2;
   --xmas: #1f6b3f;
   --xmas-soft: #e2f1e7;
   --danger: #a3261f;
@@ -20,15 +20,15 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17130f;
-    --surface: #221c17;
-    --surface-2: #2c251f;
-    --ink: #f1ebe2;
-    --muted: #a99d90;
-    --line: #3a3129;
-    --accent: #d98b97;
-    --accent-ink: #1b1210;
-    --accent-soft: #3a2328;
+    --bg: #14141c;
+    --surface: #1e1e2a;
+    --surface-2: #282838;
+    --ink: #ececf4;
+    --muted: #a0a0b8;
+    --line: #33334a;
+    --accent: #a9a9e0;
+    --accent-ink: #15151f;
+    --accent-soft: #2b2b44;
     --xmas: #7fd19d;
     --xmas-soft: #1f3327;
     --danger: #ff8a7f;
@@ -60,7 +60,7 @@ button { cursor: pointer; }
   display: flex; align-items: center; gap: 8px;
   background: var(--accent); color: var(--accent-ink);
 }
-@media (prefers-color-scheme: dark) { .topbar { background: #2a1a1d; color: var(--ink); } }
+@media (prefers-color-scheme: dark) { .topbar { background: #2a2a40; color: var(--ink); } }
 .topbar h1 {
   flex: 1; margin: 0; min-width: 0;
   font: 600 21px/1.2 var(--serif);
@@ -258,11 +258,11 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   position: fixed; z-index: 60; left: 50%; transform: translateX(-50%);
   bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px);
   max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px;
-  background: #2a2420; color: #fff; font-size: 14.5px; box-shadow: 0 6px 20px rgb(0 0 0 / .25);
+  background: #26263a; color: #fff; font-size: 14.5px; box-shadow: 0 6px 20px rgb(0 0 0 / .25);
 }
 
 /* ---------- viewer ---------- */
-.viewer { position: fixed; inset: 0; z-index: 50; background: #3a3633; color: #fff; }
+.viewer { position: fixed; inset: 0; z-index: 50; background: #33333f; color: #fff; }
 .v-scroll {
   position: absolute; inset: 0; overflow: auto;
   touch-action: pan-x pan-y; overscroll-behavior: contain;
@@ -274,18 +274,18 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .v-img { object-fit: contain; }
 .v-detail { position: absolute; display: block; }
 .v-end { flex: none; padding: 20px 16px calc(40px + env(safe-area-inset-bottom)); display: grid; gap: 10px; justify-items: center; text-align: center; min-height: 80px; }
-.v-note { color: #e8dcd0; font-style: italic; font-family: var(--serif); font-size: 17px; }
+.v-note { color: #e0e0ee; font-style: italic; font-family: var(--serif); font-size: 17px; }
 .v-next-big {
   display: grid; gap: 2px; width: min(100%, 420px); padding: 14px 18px;
-  border: 0; border-radius: 14px; background: #fff; color: #5c1a26; text-align: left;
+  border: 0; border-radius: 14px; background: #fff; color: #52527a; text-align: left;
 }
-.v-next-big span { font-size: 13px; color: #6f655b; font-weight: 600; }
+.v-next-big span { font-size: 13px; color: #62627a; font-weight: 600; }
 .v-next-big strong { font: 600 19px var(--serif); }
 
 .v-bar {
   position: absolute; left: 0; right: 0; z-index: 2;
   display: flex; align-items: center; gap: 4px; padding: 6px 8px;
-  background: rgb(24 20 18 / .86); backdrop-filter: blur(6px);
+  background: rgb(22 22 32 / .86); backdrop-filter: blur(6px);
   transition: transform .2s, opacity .2s;
 }
 .v-top { top: 0; padding-top: calc(6px + env(safe-area-inset-top)); }
@@ -300,8 +300,8 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .v-btn.v-wide { font-size: 15px; font-weight: 600; padding: 0 12px; }
 .v-title { flex: 1; min-width: 0; display: grid; line-height: 1.2; padding: 0 4px; }
 .v-title strong { font: 600 17px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.v-title span { font-size: 12.5px; color: #cfc4b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.v-page { font-size: 13.5px; color: #e0d6cb; margin: 0 auto; }
+.v-title span { font-size: 12.5px; color: #c8c8dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-page { font-size: 13.5px; color: #dcdce8; margin: 0 auto; }
 .v-zoom, .v-msg {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;
   padding: 8px 16px; border-radius: 12px; background: rgb(0 0 0 / .7); color: #fff; font-weight: 600;
