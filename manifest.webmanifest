@@ -1,7 +1,7 @@
 {
   "id": "./",
   "name": "BFS Scores – sheet music & programmes",
-  "short_name": "Scores",
+  "short_name": "BFS",
   "description": "View and organise your sheet music and build concert programmes.",
   "start_url": "./",
   "scope": "./",

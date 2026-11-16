@@ -20,7 +20,7 @@ The app is static files, so any static web host will do. The easiest is **GitHub
 
 1. In the repository on GitHub, go to **Settings → Pages** and set **Source** to **GitHub Actions**.
 2. The workflow deploys on every push to `main`, or you can run it by hand from the **Actions** tab. The app's address is shown on the Settings → Pages screen (`https://<your-username>.github.io/<repository-name>/`).
-3. Open that address in Chrome on your phone and tap ⋮, then **Install app** (or **Add to Home screen**).
+3. Open that address in Chrome on your phone and tap ⋮, then **Install app** (or **Add to Home screen**). It appears on your home screen as **BFS**.
 4. Open the app and import your `_BFS` folder.
 
 > **Your scores and programmes live on the phone**, in the app's own storage. Use **Library → Download backup** now and then.
