@@ -1,15 +1,19 @@
 :root {
-  --bg: #f3f3f7;
+  --bg: #f4f4f4;
   --surface: #ffffff;
-  --surface-2: #e9e9f1;
-  --ink: #1d1d2b;
-  --muted: #62627a;
-  --line: #dcdce8;
-  --accent: #52527a;
+  --surface-2: #ebebeb;
+  --ink: #1c1c1c;
+  --muted: #6b6b6b;
+  --line: #dedede;
+  --accent: #3d3d3d;
   --accent-ink: #ffffff;
-  --accent-soft: #e6e6f2;
-  --xmas: #b3261e;
-  --xmas-soft: #fbe6e4;
+  --accent-soft: #e6e6e6;
+  --t-red: #b3261e;    --t-red-bg: #fbe6e4;
+  --t-blue: #1f5fa8;   --t-blue-bg: #e3edf9;
+  --t-green: #2b6e3f;  --t-green-bg: #e3f1e7;
+  --t-amber: #8a5a00;  --t-amber-bg: #fbefd5;
+  --t-purple: #6b3fa0; --t-purple-bg: #efe6f8;
+  --t-teal: #136b6b;   --t-teal-bg: #dff1f0;
   --danger: #a3261f;
   --shadow: 0 1px 2px rgb(0 0 0 / .06), 0 4px 16px rgb(0 0 0 / .06);
   --radius: 14px;
@@ -20,17 +24,21 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14141c;
-    --surface: #1e1e2a;
-    --surface-2: #282838;
-    --ink: #ececf4;
-    --muted: #a0a0b8;
-    --line: #33334a;
-    --accent: #a9a9e0;
-    --accent-ink: #15151f;
-    --accent-soft: #2b2b44;
-    --xmas: #ff9a90;
-    --xmas-soft: #3d1f22;
+    --bg: #141414;
+    --surface: #1f1f1f;
+    --surface-2: #2a2a2a;
+    --ink: #ececec;
+    --muted: #a3a3a3;
+    --line: #333333;
+    --accent: #d0d0d0;
+    --accent-ink: #161616;
+    --accent-soft: #303030;
+    --t-red: #ff9a90;    --t-red-bg: #3d1f22;
+    --t-blue: #8ec0ff;   --t-blue-bg: #1c2a3d;
+    --t-green: #8fd6a4;  --t-green-bg: #1d3124;
+    --t-amber: #f2c46b;  --t-amber-bg: #3a2e14;
+    --t-purple: #c9a6f2; --t-purple-bg: #2e2440;
+    --t-teal: #7fd6d2;   --t-teal-bg: #163331;
     --danger: #ff8a7f;
     --shadow: 0 1px 2px rgb(0 0 0 / .4);
   }
@@ -60,7 +68,7 @@ button { cursor: pointer; }
   display: flex; align-items: center; gap: 8px;
   background: var(--accent); color: var(--accent-ink);
 }
-@media (prefers-color-scheme: dark) { .topbar { background: #2a2a40; color: var(--ink); } }
+@media (prefers-color-scheme: dark) { .topbar { background: #262626; color: var(--ink); } }
 .topbar h1 {
   flex: 1; margin: 0; min-width: 0;
   font: 600 21px/1.2 var(--serif);
@@ -169,7 +177,12 @@ main { max-width: 760px; margin: 0 auto; padding: 12px 16px 24px; }
 .row-title { font: 600 17px/1.25 var(--serif); overflow-wrap: anywhere; }
 .row-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .tag { padding: 1px 8px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; }
-.tag.xmas { background: var(--xmas-soft); color: var(--xmas); }
+.tag.red { background: var(--t-red-bg); color: var(--t-red); }
+.tag.blue { background: var(--t-blue-bg); color: var(--t-blue); }
+.tag.green { background: var(--t-green-bg); color: var(--t-green); }
+.tag.amber { background: var(--t-amber-bg); color: var(--t-amber); }
+.tag.purple { background: var(--t-purple-bg); color: var(--t-purple); }
+.tag.teal { background: var(--t-teal-bg); color: var(--t-teal); }
 .tag.warn { background: #fdecea; color: var(--danger); }
 .kind { font-size: 12px; }
 .chev { color: var(--muted); font-size: 24px; padding: 0 12px; }
@@ -258,11 +271,11 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   position: fixed; z-index: 60; left: 50%; transform: translateX(-50%);
   bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px);
   max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px;
-  background: #26263a; color: #fff; font-size: 14.5px; box-shadow: 0 6px 20px rgb(0 0 0 / .25);
+  background: #2a2a2a; color: #fff; font-size: 14.5px; box-shadow: 0 6px 20px rgb(0 0 0 / .25);
 }
 
 /* ---------- viewer ---------- */
-.viewer { position: fixed; inset: 0; z-index: 50; background: #33333f; color: #fff; }
+.viewer { position: fixed; inset: 0; z-index: 50; background: #333333; color: #fff; }
 .v-scroll {
   position: absolute; inset: 0; overflow: auto;
   touch-action: pan-x pan-y; overscroll-behavior: contain;
@@ -274,18 +287,18 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .v-img { object-fit: contain; }
 .v-detail { position: absolute; display: block; }
 .v-end { flex: none; padding: 20px 16px calc(40px + env(safe-area-inset-bottom)); display: grid; gap: 10px; justify-items: center; text-align: center; min-height: 80px; }
-.v-note { color: #e0e0ee; font-style: italic; font-family: var(--serif); font-size: 17px; }
+.v-note { color: #e2e2e2; font-style: italic; font-family: var(--serif); font-size: 17px; }
 .v-next-big {
   display: grid; gap: 2px; width: min(100%, 420px); padding: 14px 18px;
-  border: 0; border-radius: 14px; background: #fff; color: #52527a; text-align: left;
+  border: 0; border-radius: 14px; background: #fff; color: #333333; text-align: left;
 }
-.v-next-big span { font-size: 13px; color: #62627a; font-weight: 600; }
+.v-next-big span { font-size: 13px; color: #6b6b6b; font-weight: 600; }
 .v-next-big strong { font: 600 19px var(--serif); }
 
 .v-bar {
   position: absolute; left: 0; right: 0; z-index: 2;
   display: flex; align-items: center; gap: 4px; padding: 6px 8px;
-  background: rgb(22 22 32 / .86); backdrop-filter: blur(6px);
+  background: rgb(24 24 24 / .86); backdrop-filter: blur(6px);
   transition: transform .2s, opacity .2s;
 }
 .v-top { top: 0; padding-top: calc(6px + env(safe-area-inset-top)); }
@@ -300,8 +313,8 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .v-btn.v-wide { font-size: 15px; font-weight: 600; padding: 0 12px; }
 .v-title { flex: 1; min-width: 0; display: grid; line-height: 1.2; padding: 0 4px; }
 .v-title strong { font: 600 17px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.v-title span { font-size: 12.5px; color: #c8c8dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.v-page { font-size: 13.5px; color: #dcdce8; margin: 0 auto; }
+.v-title span { font-size: 12.5px; color: #cccccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-page { font-size: 13.5px; color: #dddddd; margin: 0 auto; }
 .v-zoom, .v-msg {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;
   padding: 8px 16px; border-radius: 12px; background: rgb(0 0 0 / .7); color: #fff; font-weight: 600;

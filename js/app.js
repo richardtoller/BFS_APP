@@ -94,7 +94,11 @@ function toast(msg, ms = 2600) {
 
 let sheetOpen = false, sheetLocked = false, sheetOnClose = null;
 function openSheet(html, { locked = false, onClose = null } = {}) {
-  $('#sheet-body').innerHTML = html;
+  // Start from a fresh element so click handlers from the previous sheet don't carry over.
+  const old = $('#sheet-body');
+  const body = old.cloneNode(false);
+  old.replaceWith(body);
+  body.innerHTML = html;
   sheetLocked = locked;
   sheetOnClose = onClose;
   if (!sheetOpen) {
@@ -202,8 +206,17 @@ function countByCat() {
   return counts;
 }
 
+// Tag colours: fixed for the built-in categories, then a cycle for any you add.
+const FIXED_COLOURS = { christmas: 'red', current: 'blue', general: 'green' };
+const EXTRA_COLOURS = ['amber', 'purple', 'teal'];
+function catColour(id) {
+  if (FIXED_COLOURS[id]) return FIXED_COLOURS[id];
+  const extras = state.categories.filter(c => !FIXED_COLOURS[c.id]);
+  const i = extras.findIndex(c => c.id === id);
+  return i < 0 ? '' : EXTRA_COLOURS[i % EXTRA_COLOURS.length];
+}
 function catTags(s) {
-  return s.cats.map(c => `<span class="tag ${c === 'christmas' ? 'xmas' : ''}">${esc(catName(c))}</span>`).join('');
+  return s.cats.map(c => `<span class="tag ${catColour(c)}">${esc(catName(c))}</span>`).join('');
 }
 
 function renderSongs() {
