@@ -248,7 +248,7 @@ function updateSongList() {
       ${ui.select ? '<span class="check" aria-hidden="true"></span>' : ''}
       <button class="row-main" data-open="${s.id}">
         <span class="row-title">${esc(s.title)}</span>
-        <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span></span>
+        <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span>${s.folder && s.folder.toLowerCase() !== '_bfs' ? `<span class="kind">· 📁 ${esc(s.folder)}</span>` : ''}</span>
       </button>
       ${ui.select ? '' : `<button class="icon-btn" data-more="${s.id}" aria-label="Options for ${esc(s.title)}">⋯</button>`}
     </li>`).join('') : `<li class="empty">No songs match.</li>`;
@@ -655,9 +655,10 @@ async function renderLibrary() {
       <p>${all.length ? `${plural(all.length, 'song')} (${pdfs} PDF, ${all.length - pdfs} image) · ${fmtSize(bytes)}` : 'No scores imported yet.'}</p>
       <div class="stack">
         <button class="btn primary" data-act="import-folder">${all.length ? 'Update from the _BFS folder' : 'Choose the _BFS folder'}</button>
+        <button class="btn" data-act="import-folder">Import a sub-folder</button>
         <button class="btn" data-act="import-files">Add individual files</button>
       </div>
-      <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
+      <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import a sub-folder</b> and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
     </section>
     <section class="card">
       <h2>Categories</h2>
@@ -699,12 +700,12 @@ async function renderLibrary() {
 
 /* ---------- importing ---------- */
 
-const fileKey = f => {
-  const parts = (f.webkitRelativePath || f.name).split('/');
-  if (parts.length > 1) parts.shift(); // drop the chosen folder's own name
-  return parts.join('/').toLowerCase();
-};
+// A song's key is its path including the chosen folder's name, e.g. "_bfs/silent night.pdf"
+// or "christmas/silent night.pdf", so the same file name in different folders stays separate.
+// Libraries from before folders were tracked stored just "silent night.pdf".
+const fileKey = f => (f.webkitRelativePath || f.name).toLowerCase();
 const baseName = key => key.split('/').pop();
+const sameKey = (oldKey, key) => oldKey === key || (!oldKey.includes('/') && key.split('/').length === 2 && baseName(key) === oldKey);
 const titleFromFile = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 function guessCategory(text) {
@@ -713,15 +714,29 @@ function guessCategory(text) {
 const hasDefaultCats = () => state.categories.some(c => c.id === 'christmas') && state.categories.some(c => c.id === 'general');
 
 async function importFiles(fileList) {
-  const files = [...fileList].filter(f => SCORE_EXT.test(f.name) && !f.name.startsWith('.'));
-  if (!files.length) { toast('No PDF or picture files found there'); return; }
-  const fromFolder = files.some(f => f.webkitRelativePath);
+  const all = [...fileList];
+  const isScore = f => SCORE_EXT.test(f.name) && !f.name.startsWith('.');
+  // Folder imports only take files directly inside the chosen folder; sub-folders are skipped
+  // and can be imported on their own by choosing them in the picker.
+  const folder = all.find(f => f.webkitRelativePath)?.webkitRelativePath.split('/')[0] ?? null;
+  const skipped = new Map();
+  const files = all.filter(f => {
+    const parts = (f.webkitRelativePath || f.name).split('/');
+    if (parts.length > 2) {
+      if (isScore(f)) skipped.set(parts[1], (skipped.get(parts[1]) || 0) + 1);
+      return false;
+    }
+    return isScore(f);
+  });
+  if (!files.length && !skipped.size) { toast('No PDF or picture files found there'); return; }
   navigator.storage?.persist?.().catch(() => {});
 
   const byKey = new Map(songs().map(s => [s.key, s]));
+  // Songs imported before folders were tracked: match them by file name (when unambiguous).
+  const legacy = songs().filter(s => s.folder === undefined && !s.key.includes('/'));
   const nameCount = new Map();
-  for (const s of songs()) nameCount.set(baseName(s.key), (nameCount.get(baseName(s.key)) || 0) + 1);
-  const byName = new Map(songs().filter(s => nameCount.get(baseName(s.key)) === 1).map(s => [baseName(s.key), s]));
+  for (const s of legacy) nameCount.set(s.key, (nameCount.get(s.key) || 0) + 1);
+  const byName = new Map(legacy.filter(s => nameCount.get(s.key) === 1).map(s => [s.key, s]));
 
   let added = 0, updated = 0, same = 0, failed = 0;
   const seen = new Set();
@@ -730,11 +745,11 @@ async function importFiles(fileList) {
     $('#imp-bar') && ($('#imp-bar').value = i);
     $('#imp-file') && ($('#imp-file').textContent = `${i + 1} of ${files.length}: ${f.name}`);
     const key = fileKey(f);
-    const existing = byKey.get(key) || byName.get(baseName(key));
+    const existing = byKey.get(key) || (folder && byName.get(baseName(key)));
     if (existing) seen.add(existing.id);
     try {
       if (existing && existing.size === f.size && existing.modified === f.lastModified) {
-        if (existing.key !== key) { existing.key = key; existing.file = f.webkitRelativePath || f.name; }
+        Object.assign(existing, { key, file: f.webkitRelativePath || f.name, folder: folder ?? '' });
         same++;
         continue;
       }
@@ -742,7 +757,7 @@ async function importFiles(fileList) {
       const blob = new Blob([await f.arrayBuffer()], { type: f.type || (kind === 'pdf' ? 'application/pdf' : 'image/*') });
       const id = existing?.id || uid();
       await db.put('files', id, blob);
-      const meta = { key, file: f.webkitRelativePath || f.name, kind, size: f.size, modified: f.lastModified };
+      const meta = { key, file: f.webkitRelativePath || f.name, folder: folder ?? '', kind, size: f.size, modified: f.lastModified };
       if (existing) { Object.assign(existing, meta); updated++; }
       else {
         const title = titleFromFile(f.name);
@@ -758,11 +773,17 @@ async function importFiles(fileList) {
   }
   applyPending();
   await flush();
-  const missing = fromFolder ? songs().filter(s => !seen.has(s.id)) : [];
+  const missing = folder ? songs().filter(s => s.folder === folder && !seen.has(s.id)) : [];
   const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} unchanged`, failed && `${failed} couldn't be read`].filter(Boolean);
+  const subs = [...skipped].sort((a, b) => collator.compare(a[0], b[0]));
+  const nSkipped = subs.reduce((t, [, n]) => t + n, 0);
   openSheet(`
     <h2>Import finished</h2>
-    <p>${parts.join(', ')}.</p>
+    <p>${parts.length ? `From <b>${esc(folder ?? 'the chosen files')}</b>: ${parts.join(', ')}.` : `No scores directly inside <b>${esc(folder)}</b>.`}</p>
+    ${subs.length ? `<p>${plural(nSkipped, 'score')} in sub-folders ${nSkipped === 1 ? 'was' : 'were'} skipped:</p>
+      <ul class="sub-list">${subs.map(([name, n]) => `<li><b>${esc(name)}</b> <span class="muted small">${plural(n, 'score')}</span></li>`).join('')}</ul>
+      <p class="muted small">To add one, tap <b>Import a sub-folder</b> and open that folder in the picker.</p>
+      <button class="btn" data-act="import-folder">Import a sub-folder…</button>` : ''}
     ${added && hasDefaultCats() ? `<p class="muted small">New songs were sorted into Christmas or Non-Christmas from their titles. Check the Christmas list and fix any mistakes with ⋯ or Select.</p>` : ''}
     ${missing.length ? `<p>${plural(missing.length, 'song')} in the app ${missing.length === 1 ? 'is' : 'are'} no longer in that folder.</p>
       <button class="btn" data-act="remove-missing">Remove ${missing.length === 1 ? 'it' : 'them'} from the app</button>` : ''}
@@ -805,9 +826,8 @@ async function restoreBackup(file) {
   for (const c of data.categories || []) if (!state.categories.some(x => x.id === c.id)) state.categories.push(c);
   // Songs: songs already imported get their saved title and categories; others are remembered for when they're imported.
   const idMap = new Map();
-  const byKey = new Map(songs().map(s => [s.key, s]));
   for (const b of data.songs || []) {
-    const s = byKey.get(b.key);
+    const s = songs().find(x => sameKey(b.key, x.key));
     if (s) { s.title = b.title; s.cats = b.cats || []; idMap.set(b.id, s.id); }
     else idMap.set(b.id, b.id);
     if (!s) {
@@ -830,12 +850,13 @@ async function restoreBackup(file) {
 function applyPending() {
   if (!state.pending) return;
   for (const s of songs()) {
-    const b = state.pending[s.key];
+    const pk = Object.keys(state.pending).find(k => sameKey(k, s.key));
+    const b = pk && state.pending[pk];
     if (!b) continue;
     s.title = b.title;
     s.cats = b.cats || [];
     for (const p of state.programmes) for (const i of p.items) if (i.songId === b.id) i.songId = s.id;
-    delete state.pending[s.key];
+    delete state.pending[pk];
   }
   if (!Object.keys(state.pending).length) delete state.pending;
   save();
