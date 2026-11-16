@@ -66,7 +66,7 @@ function filterSongs(q, cat) {
   const words = norm(q).split(' ').filter(Boolean);
   return songs()
     .filter(s => cat === 'all' || (cat === 'none' ? !s.cats.length : s.cats.includes(cat)))
-    .filter(s => { const t = norm(s.title + ' ' + s.file); return words.every(w => t.includes(w)); })
+    .filter(s => { const t = norm(s.title + ' ' + s.file + ' ' + (s.notes || '')); return words.every(w => t.includes(w)); })
     .sort((a, b) => collator.compare(a.title, b.title));
 }
 
@@ -148,6 +148,9 @@ function openSong(id) {
   viewSongs([{ songId: id, title: s.title }], 0, '');
 }
 
+// Redraw on the way out, so notes added in the viewer show in the list.
+function closeViewerAndRefresh() { closeViewer(); render(); }
+
 function viewSongs(items, index, label) {
   if (sheetOpen) {
     // Close the sheet without leaving its history entry, then let the viewer own that entry.
@@ -155,15 +158,17 @@ function viewSongs(items, index, label) {
     $('#sheet').hidden = true;
     $('#sheet-backdrop').hidden = true;
     sheetOnClose = null;
-    replaceTopLayer(closeViewer);
+    replaceTopLayer(closeViewerAndRefresh);
   } else {
-    pushLayer(closeViewer);
+    pushLayer(closeViewerAndRefresh);
   }
   openViewer($('#viewer'), {
     items, index, label, getSong,
     fit: state.settings.fit,
     fullscreen: state.settings.fullscreen,
     onFit: fit => { state.settings.fit = fit; save(); },
+    getNotes: id => state.songs[id]?.notes ?? '',
+    onNotes: (id, text) => { const s = state.songs[id]; if (s) { s.notes = text; save(); } },
     onClose: back
   });
 }
@@ -227,6 +232,10 @@ function catColour(id) {
   const i = extras.findIndex(c => c.id === id);
   return i < 0 ? '' : EXTRA_COLOURS[i % EXTRA_COLOURS.length];
 }
+function notesSnippet(s) {
+  const n = (s.notes || '').trim();
+  return n ? `<span class="row-notes">📝 ${esc(n.replace(/\s+/g, ' '))}</span>` : '';
+}
 function catTags(s) {
   return s.cats.map(c => `<span class="tag ${catColour(c)}">${esc(catName(c))}</span>`).join('');
 }
@@ -274,6 +283,7 @@ function updateSongList() {
       <button class="row-main" data-open="${s.id}">
         <span class="row-title">${esc(s.title)}</span>
         <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span>${s.folder && s.folder.toLowerCase() !== '_bfs' ? `<span class="kind">· 📁 ${esc(s.folder)}</span>` : ''}</span>
+        ${notesSnippet(s)}
       </button>
       ${ui.select ? '' : `<button class="icon-btn" data-more="${s.id}" aria-label="Options for ${esc(s.title)}">⋯</button>`}
     </li>`).join('') : `<li class="empty">No songs match.</li>`;
@@ -311,6 +321,7 @@ function songSheet(id) {
       <div class="chips wrap">${state.categories.map(c =>
         `<button class="chip ${s.cats.includes(c.id) ? 'on' : ''}" data-toggle-cat="${c.id}">${esc(c.name)}</button>`).join('')}</div>
     </div>
+    <label class="field">Notes<textarea id="s-notes" rows="4" placeholder="e.g. key, tempo, repeats, who sings which verse…">${esc(s.notes || '')}</textarea></label>
     ${progs.length ? `<p class="muted small">In: ${progs.map(p => esc(p.name)).join(', ')}</p>` : ''}
     <div class="stack">
       <button class="btn primary" data-act="sheet-open" data-id="${id}">Open score</button>
@@ -329,6 +340,7 @@ function songSheet(id) {
   input.addEventListener('change', () => { if (!input.value.trim()) input.value = s.title; });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
   $('#s-reset').addEventListener('click', () => { input.value = fileTitle; setTitle(fileTitle); });
+  $('#s-notes').addEventListener('input', e => { s.notes = e.target.value; save(); });
   $('#sheet-body').addEventListener('click', e => {
     const b = e.target.closest('[data-toggle-cat]');
     if (!b) return;
@@ -471,6 +483,7 @@ function renderProgramme() {
       <button class="row-main" data-play="${it.id}" ${s ? '' : 'disabled'}>
         <span class="row-title">${esc(s?.title ?? it.title)}</span>
         <span class="row-meta">${s ? catTags(s) : '<span class="tag warn">Not in library</span>'}</span>
+        ${s ? notesSnippet(s) : ''}
       </button>${remove}</li>`;
   }).join('');
   view.innerHTML = `
@@ -847,7 +860,7 @@ function downloadBackup() {
     app: 'scores', version: 1, exported: new Date().toISOString(),
     categories: state.categories,
     programmes: state.programmes,
-    songs: songs().map(({ id, key, file, title, cats }) => ({ id, key, file, title, cats })),
+    songs: songs().map(({ id, key, file, title, cats, notes }) => ({ id, key, file, title, cats, notes })),
     settings: state.settings
   };
   const a = document.createElement('a');
@@ -868,7 +881,7 @@ async function restoreBackup(file) {
   const idMap = new Map();
   for (const b of data.songs || []) {
     const s = songs().find(x => sameKey(b.key, x.key));
-    if (s) { s.title = b.title; s.cats = b.cats || []; idMap.set(b.id, s.id); }
+    if (s) { s.title = b.title; s.cats = b.cats || []; if (b.notes) s.notes = b.notes; idMap.set(b.id, s.id); }
     else idMap.set(b.id, b.id);
     if (!s) {
       state.pending ||= {};
@@ -896,6 +909,7 @@ function applyPending() {
     if (!b) continue;
     s.title = b.title;
     s.cats = b.cats || [];
+    if (b.notes) s.notes = b.notes;
     for (const p of state.programmes) for (const i of p.items) if (i.songId === b.id) i.songId = s.id;
     delete state.pending[pk];
   }
@@ -1033,7 +1047,7 @@ document.addEventListener('click', e => {
       return confirmSheet('Remove all scores?', `All ${plural(songs().length, 'score')} are removed from this app, freeing their storage. The files in your _BFS folder are not touched. Programmes and categories are kept: if you import the scores again, their titles, categories and places in programmes come back.`, 'Remove all scores', async () => {
         // Remember each song so a later import reconnects it (see applyPending).
         state.pending ||= {};
-        for (const x of songs()) state.pending[x.key] = { id: x.id, key: x.key, title: x.title, cats: x.cats };
+        for (const x of songs()) state.pending[x.key] = { id: x.id, key: x.key, title: x.title, cats: x.cats, notes: x.notes };
         await db.clear('files');
         state.songs = {};
         ui.select = null;
