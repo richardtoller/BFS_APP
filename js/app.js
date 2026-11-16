@@ -699,10 +699,11 @@ async function renderLibrary() {
       </div>
       <p class="muted small" id="storage-info"></p>
     </section>
-    <section class="card">
-      <h2>Start again</h2>
-      <button class="btn danger" data-act="wipe">Remove all scores from the app…</button>
-    </section>`;
+    ${all.length ? `<section class="card">
+      <h2>Remove all scores</h2>
+      <p class="hint">Clears every score from the app to free up space or start again. Your _BFS folder isn't touched, and programmes and categories are kept.</p>
+      <button class="btn danger" data-act="wipe">Remove all scores…</button>
+    </section>` : ''}`;
   $('#set-fs').addEventListener('change', e => { state.settings.fullscreen = e.target.checked; save(); });
   if (navigator.storage?.estimate) {
     const [est, persisted] = await Promise.all([navigator.storage.estimate(), navigator.storage.persisted?.() ?? false]);
@@ -1003,10 +1004,15 @@ document.addEventListener('click', e => {
     case 'backup': return downloadBackup();
     case 'restore': return $('#pick-backup').click();
     case 'wipe':
-      return confirmSheet('Remove all scores?', 'All scores are removed from this app. Programmes and categories are kept, and the files in your _BFS folder are not touched.', 'Remove all', async () => {
+      return confirmSheet('Remove all scores?', `All ${plural(songs().length, 'score')} are removed from this app, freeing their storage. The files in your _BFS folder are not touched. Programmes and categories are kept: if you import the scores again, their titles, categories and places in programmes come back.`, 'Remove all scores', async () => {
+        // Remember each song so a later import reconnects it (see applyPending).
+        state.pending ||= {};
+        for (const x of songs()) state.pending[x.key] = { id: x.id, key: x.key, title: x.title, cats: x.cats };
         await db.clear('files');
         state.songs = {};
+        ui.select = null;
         await flush();
+        toast('All scores removed');
       });
   }
 });
