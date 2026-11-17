@@ -248,8 +248,9 @@ function renderSongs() {
       <div class="welcome">
         <div class="welcome-art" aria-hidden="true">𝄞</div>
         <h2>Add your scores</h2>
-        <p>Choose your <b>songs/_BFS</b> folder and the app will copy its PDFs and pictures into its own storage on this phone, so they open instantly, even offline.</p>
+        <p>Choose your <b>songs/_BFS</b> folder, or download the scores from GitHub. The app copies the PDFs and pictures into its own storage on this phone, so they open instantly, even offline.</p>
         <button class="btn primary big" data-act="import-folder">Choose the _BFS folder</button>
+        <button class="btn primary big" data-act="github-import">Download from GitHub</button>
         <button class="btn" data-act="import-files">Choose files instead</button>
         <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. If you can only pick files, open that folder, then use ⋮ › <b>Select all</b>.</p>
       </div>`;
@@ -282,7 +283,7 @@ function updateSongList() {
       ${ui.select ? '<span class="check" aria-hidden="true"></span>' : ''}
       <button class="row-main" data-open="${s.id}">
         <span class="row-title">${esc(s.title)}</span>
-        <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span>${s.folder && s.folder.toLowerCase() !== '_bfs' ? `<span class="kind">· 📁 ${esc(s.folder)}</span>` : ''}</span>
+        <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span>${s.source === 'github' ? '<span class="kind">· ☁ GitHub</span>' : s.folder && s.folder.toLowerCase() !== '_bfs' ? `<span class="kind">· 📁 ${esc(s.folder)}</span>` : ''}</span>
         ${notesSnippet(s)}
       </button>
       ${ui.select ? '' : `<button class="icon-btn" data-more="${s.id}" aria-label="Options for ${esc(s.title)}">⋯</button>`}
@@ -313,7 +314,7 @@ function songSheet(id) {
     <h2 id="s-head">${esc(s.title)}</h2>
     <label class="field">Name in the app<input id="s-title" value="${esc(s.title)}" autocomplete="off" enterkeyhint="done"></label>
     <div class="file-link">
-      <span class="muted small">Linked to the file <b>${esc(s.file)}</b> · ${s.kind === 'pdf' ? 'PDF' : 'Image'} · ${fmtSize(s.size)}</span>
+      <span class="muted small">Linked to the file <b>${esc(s.file)}</b>${s.source === 'github' ? ' on GitHub' : ''} · ${s.kind === 'pdf' ? 'PDF' : 'Image'} · ${fmtSize(s.size)}</span>
       <button class="link small" id="s-reset" ${s.title === fileTitle ? 'hidden' : ''}>Use the file name</button>
     </div>
     <p class="hint">Renaming only changes the name shown here. The file itself isn't renamed, and it stays linked, so re-importing keeps your name.</p>
@@ -710,6 +711,14 @@ async function renderLibrary() {
         <button class="btn" data-act="import-folder">Import a sub-folder</button>
         <button class="btn" data-act="import-files">Add individual files</button>
       </div>
+      <h3>From GitHub</h3>
+      <p class="muted small">${esc(ghConfig().owner)}/${esc(ghLabel(ghConfig()))}${ghConfig().token ? ' · token saved' : ''}</p>
+      <div class="stack">
+        <button class="btn primary" data-act="github-import">${all.some(s => s.source === 'github') ? 'Update from GitHub' : 'Download from GitHub'}</button>
+        <button class="btn" data-act="github-settings">GitHub settings</button>
+      </div>
+      <p class="hint">Downloads the scores in that GitHub folder (not its sub-folders). Tap <b>Update from GitHub</b> after changing scores there: only new and changed files are downloaded, and your titles, categories and programmes are kept. A private repository needs an access token: see <b>GitHub settings</b>.</p>
+      <h3>From this phone</h3>
       <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import a sub-folder</b> and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
     </section>
     <section class="card">
@@ -731,7 +740,7 @@ async function renderLibrary() {
     </section>
     <section class="card">
       <h2>Backup</h2>
-      <p class="hint">Saves your programmes, categories and song titles (not the score files, which stay in your _BFS folder). After restoring on a new phone, import the folder again and everything will match up.</p>
+      <p class="hint">Saves your programmes, categories and song titles (not the score files, which stay in your _BFS folder or on GitHub). After restoring on a new phone, import the folder or download from GitHub again and everything will match up. Your GitHub access token isn't included: enter it again in GitHub settings.</p>
       <div class="stack">
         <button class="btn" data-act="backup">Download backup</button>
         <button class="btn" data-act="restore">Restore from backup…</button>
@@ -826,17 +835,24 @@ async function importFiles(fileList) {
   }
   applyPending();
   await flush();
-  const missing = folder ? songs().filter(s => s.folder === folder && !seen.has(s.id)) : [];
-  const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} unchanged`, failed && `${failed} couldn't be read`].filter(Boolean);
+  const missing = folder ? songs().filter(s => s.source !== 'github' && s.folder === folder && !seen.has(s.id)) : [];
   const subs = [...skipped].sort((a, b) => collator.compare(a[0], b[0]));
-  const nSkipped = subs.reduce((t, [, n]) => t + n, 0);
-  openSheet(`
-    <h2>Import finished</h2>
-    <p>${parts.length ? `From <b>${esc(folder ?? 'the chosen files')}</b>: ${parts.join(', ')}.` : `No scores directly inside <b>${esc(folder)}</b>.`}</p>
-    ${subs.length ? `<p>${plural(nSkipped, 'score')} in sub-folders ${nSkipped === 1 ? 'was' : 'were'} skipped:</p>
+  importSummary({
+    from: folder ?? 'the chosen files', counts: { added, updated, same, failed }, missing,
+    subsHtml: subs.length ? `<p>${plural(subs.reduce((t, [, n]) => t + n, 0), 'score')} in sub-folders skipped:</p>
       <ul class="sub-list">${subs.map(([name, n]) => `<li><b>${esc(name)}</b> <span class="muted small">${plural(n, 'score')}</span></li>`).join('')}</ul>
       <p class="muted small">To add one, tap <b>Import a sub-folder</b> and open that folder in the picker.</p>
-      <button class="btn" data-act="import-folder">Import a sub-folder…</button>` : ''}
+      <button class="btn" data-act="import-folder">Import a sub-folder…</button>` : ''
+  });
+}
+
+// The "Import finished" sheet, shared by folder and GitHub imports.
+function importSummary({ from, counts: { added, updated, same, failed }, missing, subsHtml = '' }) {
+  const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} unchanged`, failed && `${failed} couldn't be read`].filter(Boolean);
+  openSheet(`
+    <h2>Import finished</h2>
+    <p>${parts.length ? `From <b>${esc(from)}</b>: ${parts.join(', ')}.` : `No scores directly inside <b>${esc(from)}</b>.`}</p>
+    ${subsHtml}
     ${added && hasDefaultCats() ? `<p class="muted small">Songs that look Christmassy from their titles were put in Christmas. Check the Christmas list and fix any mistakes with ⋯ or Select.</p>` : ''}
     ${missing.length ? `<p>${plural(missing.length, 'song')} in the app ${missing.length === 1 ? 'is' : 'are'} no longer in that folder.</p>
       <button class="btn" data-act="remove-missing">Remove ${missing.length === 1 ? 'it' : 'them'} from the app</button>` : ''}
@@ -853,6 +869,146 @@ async function importFiles(fileList) {
 $('#pick-folder').addEventListener('change', e => { const f = e.target.files; if (f?.length) importFiles(f); e.target.value = ''; });
 $('#pick-files').addEventListener('change', e => { const f = e.target.files; if (f?.length) importFiles(f); e.target.value = ''; });
 
+/* ---------- downloading from GitHub ---------- */
+
+// Scores can also come from a folder in a GitHub repository. A private repository needs a
+// personal access token, which is kept only in this app's storage (never in backups).
+const GH_DEFAULT = { owner: 'richardtoller', repo: 'BFS', branch: 'main', path: 'pdf', token: '' };
+const ghConfig = () => ({ ...GH_DEFAULT, ...state.settings.github });
+const ghLabel = g => [g.repo, g.path].filter(Boolean).join('/');
+const ghPathUrl = (g, path) => `https://api.github.com/repos/${encodeURIComponent(g.owner)}/${encodeURIComponent(g.repo)}/contents/` +
+  path.split('/').filter(Boolean).map(encodeURIComponent).join('/') + (g.branch ? `?ref=${encodeURIComponent(g.branch)}` : '');
+const ghHeaders = (g, accept) => ({ Accept: accept, ...(g.token ? { Authorization: `Bearer ${g.token}` } : {}) });
+
+function ghErrorMessage(res, g) {
+  const where = `${g.owner}/${ghLabel(g)}${g.branch ? ` (branch ${g.branch})` : ''}`;
+  if (res.status === 401) return 'GitHub didn’t accept the access token. Check it’s typed correctly and hasn’t expired.';
+  if ((res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0') {
+    return g.token ? 'GitHub’s download limit was reached. Try again in an hour.'
+      : 'GitHub’s hourly limit for downloads without a token was reached. Add an access token, or try again in an hour.';
+  }
+  if (res.status === 403) return `The access token isn’t allowed to read ${where}. Give it read access to that repository’s contents.`;
+  if (res.status === 404) return `Couldn’t find ${where}. Check the names${g.token ? ', and that the token can read this repository' : '. If the repository is private, add an access token'}.`;
+  return `GitHub replied with an error (${res.status}).`;
+}
+
+function githubSheet() {
+  const g = ghConfig();
+  const field = (id, label, value, extra = '') =>
+    `<label class="field">${label}<input id="${id}" value="${esc(value)}" autocomplete="off" autocapitalize="off" spellcheck="false" ${extra}></label>`;
+  openSheet(`
+    <h2>Download from GitHub</h2>
+    <p class="muted small">Downloads the scores in a folder of a GitHub repository and stores them on this phone, so they open instantly, even offline.</p>
+    ${field('gh-owner', 'Owner (GitHub user name)', g.owner, 'placeholder="richardtoller"')}
+    ${field('gh-repo', 'Repository', g.repo, 'placeholder="BFS"')}
+    ${field('gh-path', 'Folder', g.path, 'placeholder="pdf (leave empty for the top level)"')}
+    ${field('gh-branch', 'Branch', g.branch, 'placeholder="main (leave empty for the default branch)"')}
+    ${field('gh-token', 'Access token', g.token, 'type="password" placeholder="Needed if the repository is private"')}
+    <p class="hint">A private repository needs a token. On GitHub, go to <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens</b>, choose <b>Generate new token</b>, pick <b>Only select repositories</b> and your scores repository, and under <b>Permissions</b> set <b>Contents</b> to <b>Read-only</b>. Copy the token here. It is stored only in this app on this phone and isn’t included in backups.</p>
+    <div class="stack">
+      <button class="btn primary" id="gh-go">Save and download</button>
+      <button class="btn" id="gh-save">Save</button>
+    </div>`, { onClose: render });
+  const read = () => {
+    const v = id => $(id).value.trim();
+    state.settings.github = { owner: v('#gh-owner'), repo: v('#gh-repo'), path: v('#gh-path').replace(/^\/+|\/+$/g, ''), branch: v('#gh-branch'), token: v('#gh-token') };
+    save();
+    return state.settings.github.owner && state.settings.github.repo;
+  };
+  $('#gh-save').addEventListener('click', () => {
+    if (!read()) { toast('Fill in the owner and repository'); return; }
+    toast('GitHub settings saved');
+    closeSheet();
+  });
+  $('#gh-go').addEventListener('click', () => {
+    if (!read()) { toast('Fill in the owner and repository'); return; }
+    importFromGitHub();
+  });
+}
+
+function githubFailed(msg) {
+  openSheet(`<h2>Couldn’t download from GitHub</h2><p>${esc(msg)}</p>
+    <div class="stack"><button class="btn primary" data-act="github-settings">GitHub settings</button><button class="btn" data-act="close-sheet">Close</button></div>`, { onClose: render });
+}
+
+async function importFromGitHub() {
+  const g = ghConfig();
+  if (!g.owner || !g.repo) return githubSheet();
+  const from = ghLabel(g);
+  openSheet(`<h2>Checking GitHub…</h2><p class="muted small">${esc(g.owner)}/${esc(from)}</p>`, { locked: true });
+
+  let entries;
+  try {
+    const res = await fetch(ghPathUrl(g, g.path), { headers: ghHeaders(g, 'application/vnd.github+json'), cache: 'no-store' });
+    if (!res.ok) return githubFailed(ghErrorMessage(res, g));
+    entries = await res.json();
+    if (!Array.isArray(entries)) return githubFailed(`“${g.path}” is a file, not a folder.`);
+  } catch (err) {
+    console.error(err);
+    return githubFailed('Couldn’t connect to GitHub. Check you have an internet connection.');
+  }
+
+  const files = entries.filter(e => e.type === 'file' && SCORE_EXT.test(e.name) && !e.name.startsWith('.'));
+  const dirs = entries.filter(e => e.type === 'dir').map(e => e.name).sort(collator.compare);
+  navigator.storage?.persist?.().catch(() => {});
+
+  const byKey = new Map(songs().map(s => [s.key, s]));
+  let added = 0, updated = 0, same = 0, failed = 0;
+  const seen = new Set();
+  openSheet(`<h2>Downloading scores…</h2><progress id="imp-bar" max="${files.length}" value="0"></progress><p class="muted small" id="imp-file"></p>`, { locked: true });
+  for (const [i, f] of files.entries()) {
+    $('#imp-bar') && ($('#imp-bar').value = i);
+    $('#imp-file') && ($('#imp-file').textContent = `${i + 1} of ${files.length}: ${f.name}`);
+    const key = `github:${g.owner}/${g.repo}/${f.path}`.toLowerCase();
+    const existing = byKey.get(key);
+    if (existing) seen.add(existing.id);
+    const meta = { key, file: `${g.repo}/${f.path}`, folder: from, source: 'github', kind: /\.pdf$/i.test(f.name) ? 'pdf' : 'image', size: f.size, sha: f.sha };
+    try {
+      // The git blob hash changes whenever the file does, so unchanged scores aren't downloaded again.
+      if (existing && existing.sha === f.sha && await db.get('files', existing.id)) {
+        Object.assign(existing, meta);
+        same++;
+        continue;
+      }
+      // With a token, use the API (works for private repositories); without one, the public raw file.
+      const res = g.token
+        ? await fetch(f.url, { headers: ghHeaders(g, 'application/vnd.github.raw'), cache: 'no-store' })
+        : await fetch(f.download_url, { cache: 'no-store' });
+      if (!res.ok) {
+        if (res.status === 401 || res.headers.get('x-ratelimit-remaining') === '0') {
+          await flush();
+          return githubFailed(ghErrorMessage(res, g) + (added + updated ? ` ${plural(added + updated, 'score')} were downloaded before this happened.` : ''));
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.blob();
+      const blob = new Blob([data], { type: meta.kind === 'pdf' ? 'application/pdf' : (data.type || 'image/*') });
+      const id = existing?.id || uid();
+      await db.put('files', id, blob);
+      meta.size = blob.size;
+      if (existing) { Object.assign(existing, meta); updated++; }
+      else {
+        const title = titleFromFile(f.name);
+        state.songs[id] = { id, title, cats: hasDefaultCats() ? guessCategory(f.path + ' ' + title) : [], added: Date.now(), ...meta };
+        seen.add(id);
+        byKey.set(key, state.songs[id]);
+        added++;
+      }
+    } catch (err) {
+      console.error(f.name, err);
+      failed++;
+    }
+  }
+  applyPending();
+  await flush();
+  const missing = songs().filter(s => s.source === 'github' && s.key.startsWith(`github:${g.owner}/${g.repo}/`.toLowerCase())
+    && s.folder === from && !seen.has(s.id));
+  importSummary({
+    from: `GitHub: ${from}`, counts: { added, updated, same, failed }, missing,
+    subsHtml: dirs.length ? `<p class="muted small">Sub-folders not downloaded: ${dirs.map(d => `<b>${esc(d)}</b>`).join(', ')}. To download one, change the folder in GitHub settings.</p>` : ''
+  });
+}
+
 /* ---------- backup ---------- */
 
 function downloadBackup() {
@@ -861,7 +1017,8 @@ function downloadBackup() {
     categories: state.categories,
     programmes: state.programmes,
     songs: songs().map(({ id, key, file, title, cats, notes }) => ({ id, key, file, title, cats, notes })),
-    settings: state.settings
+    // Never put the GitHub access token in a backup file.
+    settings: { ...state.settings, github: state.settings.github && { ...state.settings.github, token: undefined } }
   };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
@@ -893,7 +1050,11 @@ async function restoreBackup(file) {
     const at = state.programmes.findIndex(x => x.id === p.id);
     if (at >= 0) state.programmes[at] = p; else state.programmes.push(p);
   }
-  if (data.settings) state.settings = { ...state.settings, ...data.settings };
+  if (data.settings) {
+    const token = state.settings.github?.token;
+    state.settings = { ...state.settings, ...data.settings };
+    if (state.settings.github && token && !state.settings.github.token) state.settings.github.token = token;
+  }
   dropNonChristmas(); // older backups include it
   await flush();
   toast(`Restored ${plural(data.programmes.length, 'programme')}`);
@@ -992,6 +1153,8 @@ document.addEventListener('click', e => {
     case 'close-sheet': return closeSheet();
     case 'import-folder': return $('#pick-folder').click();
     case 'import-files': return $('#pick-files').click();
+    case 'github-import': return state.settings.github ? importFromGitHub() : githubSheet(); // first time: confirm the settings
+    case 'github-settings': return githubSheet();
     case 'select-start': ui.select = new Set(); return render();
     case 'select-done': ui.select = null; return render();
     case 'select-all': filterSongs(ui.q, ui.cat).forEach(s => ui.select.add(s.id)); return updateSongList();

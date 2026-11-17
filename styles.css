@@ -214,6 +214,7 @@ body.selecting main { padding-bottom: 96px; }
 .welcome-art { font-size: 72px; line-height: 1.1; color: var(--accent); font-family: "Noto Music", "Bravura", serif; }
 .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 4px 16px 12px; margin-bottom: 14px; }
 .card h2 { font: 600 19px var(--serif); margin: 14px 0 6px; }
+.card h3 { font-size: 15px; margin: 16px 0 2px; }
 .card > .btn { width: 100%; margin-top: 10px; }
 .card .list { box-shadow: none; border: 1px solid var(--line); margin: 8px 0; }
 

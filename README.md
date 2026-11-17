@@ -7,6 +7,8 @@ It's an installable web app (PWA). It runs in your phone's browser, can be added
 ## Features
 
 - **Import your folder**: tap **Choose the _BFS folder** and pick *Internal shared storage › songs › _BFS*. PDFs and PNG/JPEG/WebP pictures are copied into the app's storage. Only the scores directly inside the chosen folder are imported; scores in its sub-folders are skipped (the app lists them). To add a sub-folder, tap **Import a sub-folder** (Library tab) and open that sub-folder in the picker. Its songs are marked with 📁 and the folder name. Tap **Update from the _BFS folder** (Library tab) after adding or changing scores: new files are added, changed ones updated, and your titles, categories and programmes are kept. If your phone only offers a file picker, open the folder and use ⋮ › **Select all**.
+- **Download from GitHub**: tap **Download from GitHub** to download the scores in a folder of a GitHub repository (set up for `richardtoller/BFS`, folder `pdf`, branch `main`; change these in **Library › GitHub settings**). Only files directly in that folder are downloaded. Tap **Update from GitHub** after changing scores there: new files are added and changed ones downloaded again (unchanged ones are skipped), and your titles, categories and programmes are kept. Songs from GitHub are marked ☁ GitHub. You can use GitHub and your local folder together.
+  - A **private repository needs an access token**. On GitHub, go to *Settings › Developer settings › Personal access tokens › Fine-grained tokens*, choose *Generate new token*, pick *Only select repositories* and your scores repository, and under *Permissions* set *Contents* to *Read-only*. Paste the token into **GitHub settings**. It is stored only in the app on your phone and is never included in backups.
 - **Rename songs**: tap ⋯ beside a song and change its name. Only the name shown in the app changes: the song stays linked to its original file (shown underneath), so re-importing keeps your name, and searching still finds it by the file name. **Use the file name** puts the original name back.
 - **Notes**: each score can have its own text notes (key, repeats, who sings which verse…). Add them with ⋯ beside a song, or with 📝 while viewing the score; a dot on 📝 shows a score has notes. The first line shows under the title in the song and programme lists, and search looks in notes too. Notes are included in backups.
 - **Categories**: *Current* and *Christmas* to start with. Songs whose file names look Christmassy (Silent Night, Jingle Bells, carols and so on) go in Christmas automatically; everything else starts uncategorised. Fix any song with ⋯, or tap **Select** to change many at once. Filter the list with the category chips, or search by title. Add, rename or delete categories in the Library tab.
@@ -38,7 +40,7 @@ python3 -m http.server 8000
 | File | Purpose |
 | --- | --- |
 | `index.html`, `styles.css` | App shell and styles (light and dark mode) |
-| `js/app.js` | Songs, categories, programmes, importing, backup |
+| `js/app.js` | Songs, categories, programmes, importing (folder and GitHub), backup |
 | `js/viewer.js` | Full-screen viewer: zoom, page turning, programme navigation |
 | `js/db.js` | IndexedDB storage for the score files and app data |
 | `vendor/pdfjs/` | [PDF.js](https://mozilla.github.io/pdf.js/) 4.10.38 (Apache 2.0), stored here so it works offline |
