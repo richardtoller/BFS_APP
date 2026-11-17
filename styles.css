@@ -350,3 +350,38 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid #555; border-radius: 10px;
   background: #111; color: #f2f2f2; font: 16px/1.45 system-ui, sans-serif; resize: vertical; max-height: 40vh;
 }
+
+/* ---------- LilyPond source editor ---------- */
+body.editor-open { overflow: hidden; }
+.editor {
+  position: fixed; inset: 0; z-index: 30; background: var(--bg);
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.ed-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--accent); color: var(--accent-ink); }
+.ed-bar .icon-btn { color: inherit; }
+.ed-title { flex: 1; min-width: 0; display: grid; }
+.ed-title strong { font: 600 17px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-title span { font-size: 12px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-text {
+  flex: 1; min-height: 0; width: 100%; margin: 0; padding: 10px 12px; border: 0; border-radius: 0; resize: none;
+  font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+  background: var(--surface); color: var(--ink); tab-size: 2;
+}
+.ed-text:focus { outline: none; }
+.ed-panel { border-top: 1px solid var(--line); padding: 8px 12px 10px; background: var(--bg); max-height: 40%; overflow-y: auto; }
+.ed-status { font-size: 14px; margin-bottom: 8px; }
+.ed-status .good { color: var(--t-green); }
+.ed-status .bad, .ed-status.bad, .sheet .bad { color: var(--danger); }
+.ed-msgs { margin: 6px 0; padding-left: 18px; }
+.ed-msgs li { margin: 2px 0; }
+.ed-msgs .link { text-align: left; font-size: 13.5px; }
+.ed-msgs .link.error { color: var(--danger); }
+.ed-msgs .link.warning { color: var(--t-amber); }
+.ed-msgs .link:disabled { color: var(--muted); text-decoration: none; }
+.ed-status details { margin-top: 6px; }
+.ed-status summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.ed-status pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 30vh; overflow: auto; background: var(--surface); padding: 8px; border-radius: 8px; }
+.ed-actions { display: flex; gap: 8px; }
+.ed-actions .btn { flex: 1; }
+@media (prefers-color-scheme: dark) { .ed-bar { background: #262626; color: var(--ink); } }

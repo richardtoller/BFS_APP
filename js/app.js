@@ -176,6 +176,7 @@ function viewSongs(items, index, label) {
     onNotes: (id, text) => { const s = state.songs[id]; if (s) { s.notes = text; save(); } },
     onClose: back
   });
+  $('#viewer [data-v="notes"]').hidden = false; // hidden while viewing an edit's preview
 }
 
 /* ---------- top bar & tabs ---------- */
@@ -332,6 +333,7 @@ function songSheet(id) {
     <div class="stack">
       <button class="btn primary" data-act="sheet-open" data-id="${id}">Open score</button>
       <button class="btn" data-act="sheet-addprog" data-id="${id}">Add to programme…</button>
+      ${s.source === 'github' && s.kind === 'pdf' ? `<button class="btn" data-act="sheet-edit-ly" data-id="${id}">Edit LilyPond source${state.drafts?.[id] ? ' (draft)' : ''}</button>` : ''}
       <button class="btn danger" data-act="sheet-delsong" data-id="${id}">Remove from app</button>
     </div>`, { onClose: render });
   const input = $('#s-title');
@@ -916,7 +918,7 @@ $('#pick-files').addEventListener('change', e => { const f = e.target.files; if 
 
 // Scores can also come from a folder in a GitHub repository. A private repository needs a
 // personal access token, which is kept only in this app's storage (never in backups).
-const GH_DEFAULT = { owner: 'richardtoller', repo: 'BFS', branch: 'main', path: 'pdf', token: '' };
+const GH_DEFAULT = { owner: 'richardtoller', repo: 'BFS', branch: 'main', path: 'pdf', srcPath: 'src', token: '' };
 const ghConfig = () => ({ ...GH_DEFAULT, ...state.settings.github });
 const ghLabel = g => [g.repo, g.path].filter(Boolean).join('/');
 const ghPathUrl = (g, path) => `https://api.github.com/repos/${encodeURIComponent(g.owner)}/${encodeURIComponent(g.repo)}/contents/` +
@@ -946,15 +948,17 @@ function githubSheet() {
     ${field('gh-repo', 'Repository', g.repo, 'placeholder="BFS"')}
     ${field('gh-path', 'Folder', g.path, 'placeholder="pdf (leave empty for the top level)"')}
     ${field('gh-branch', 'Branch', g.branch, 'placeholder="main (leave empty for the default branch)"')}
+    ${field('gh-src', 'LilyPond source folder', g.srcPath, 'placeholder="src"')}
+    <p class="hint">Used for <b>Edit LilyPond source</b>: the score <i>pdf/name.pdf</i> is edited as <i>src/name.ly</i>.</p>
     ${field('gh-token', 'Access token', g.token, 'type="password" placeholder="Needed if the repository is private"')}
-    <p class="hint">A private repository needs a token. On GitHub, go to <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens</b>, choose <b>Generate new token</b>, pick <b>Only select repositories</b> and your scores repository, and under <b>Permissions</b> set <b>Contents</b> to <b>Read-only</b>. Copy the token here. It is stored only in this app on this phone and isn’t included in backups.</p>
+    <p class="hint">A private repository needs a token. On GitHub, go to <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens</b>, choose <b>Generate new token</b>, pick <b>Only select repositories</b> and your scores repository, and under <b>Permissions</b> set <b>Contents</b> to <b>Read-only</b>, or to <b>Read and write</b> if you want to edit scores’ LilyPond source in the app. Copy the token here. It is stored only in this app on this phone and isn’t included in backups.</p>
     <div class="stack">
       <button class="btn primary" id="gh-go">Save and download</button>
       <button class="btn" id="gh-save">Save</button>
     </div>`, { onClose: render });
   const read = () => {
     const v = id => $(id).value.trim();
-    state.settings.github = { owner: v('#gh-owner'), repo: v('#gh-repo'), path: v('#gh-path').replace(/^\/+|\/+$/g, ''), branch: v('#gh-branch'), token: v('#gh-token') };
+    state.settings.github = { owner: v('#gh-owner'), repo: v('#gh-repo'), path: v('#gh-path').replace(/^\/+|\/+$/g, ''), branch: v('#gh-branch'), srcPath: v('#gh-src').replace(/^\/+|\/+$/g, ''), token: v('#gh-token') };
     save();
     return state.settings.github.owner && state.settings.github.repo;
   };
@@ -1005,7 +1009,7 @@ async function importFromGitHub() {
     const key = `github:${g.owner}/${g.repo}/${f.path}`.toLowerCase();
     const existing = byKey.get(key);
     if (existing) seen.add(existing.id);
-    const meta = { key, file: `${g.repo}/${f.path}`, folder: from, source: 'github', kind: /\.pdf$/i.test(f.name) ? 'pdf' : 'image', size: f.size, sha: f.sha };
+    const meta = { key, file: `${g.repo}/${f.path}`, folder: from, source: 'github', ghOwner: g.owner, ghRepo: g.repo, ghPath: f.path, kind: /\.pdf$/i.test(f.name) ? 'pdf' : 'image', size: f.size, sha: f.sha };
     try {
       // The git blob hash changes whenever the file does, so unchanged scores aren't downloaded again.
       if (existing && existing.sha === f.sha && await db.get('files', existing.id)) {
@@ -1051,6 +1055,353 @@ async function importFromGitHub() {
     subsHtml: dirs.length ? `<p class="muted small">Sub-folders not downloaded: ${dirs.map(d => `<b>${esc(d)}</b>`).join(', ')}. To download one, change the folder in GitHub settings.</p>` : ''
   });
 }
+
+/* ---------- editing a score's LilyPond source on GitHub ---------- */
+
+// A GitHub score pdf/name.pdf is engraved from src/name.ly. Preview pushes the edit to a
+// preview/name branch, where the repository's "Preview score" workflow engraves it and
+// commits the PDF and LilyPond's messages to preview-output/. Publish commits the .ly to
+// the main branch, where "Build PDFs" rebuilds the PDFs. Unpublished edits are kept as drafts.
+
+class GhError extends Error { constructor(msg, status = 0) { super(msg); this.status = status; } }
+const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function ghSource(s) {
+  const g = { ...ghConfig() };
+  g.owner = s.ghOwner || g.owner;
+  g.repo = s.ghRepo || g.repo;
+  const pdfPath = s.ghPath || (s.file.startsWith(g.repo + '/') ? s.file.slice(g.repo.length + 1) : s.file);
+  const name = pdfPath.split('/').pop().replace(/\.[^.]+$/, '');
+  return { g, name, lyPath: [g.srcPath, name + '.ly'].filter(Boolean).join('/') };
+}
+
+async function ghApi(g, path, { method = 'GET', body, accept = 'application/vnd.github+json' } = {}) {
+  let res;
+  try {
+    res = await fetch(`https://api.github.com/repos/${encodeURIComponent(g.owner)}/${encodeURIComponent(g.repo)}${path ? '/' + path : ''}`, {
+      method, cache: 'no-store',
+      headers: { ...ghHeaders(g, accept), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch { throw new GhError('Couldn’t connect to GitHub. Check you have an internet connection.'); }
+  if (res.ok) return res;
+  let detail = '';
+  try { detail = (await res.json()).message || ''; } catch { /* no JSON */ }
+  if (res.status === 401) throw new GhError('GitHub didn’t accept the access token. Check it in GitHub settings.', 401);
+  if (res.status === 403 && /not accessible|permission/i.test(detail)) {
+    throw new GhError('Your access token isn’t allowed to make changes. On GitHub, edit the token and set Contents to Read and write.', 403);
+  }
+  throw new GhError(`GitHub replied: ${detail || 'error ' + res.status}`, res.status);
+}
+const ghJson = async (...a) => (await ghApi(...a)).json();
+const ghBranch = async g => g.branch || (await ghJson(g, '')).default_branch;
+
+function b64utf8(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+const unb64utf8 = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
+
+// LilyPond messages look like "bold_riley.ly:20:4: error: syntax error, unexpected '.'".
+function lilyMessages(log) {
+  return [...log.matchAll(/^(.+?\.i?ly):(\d+):(\d+): (fatal error|error|warning): (.+)$/gm)]
+    .map(m => ({ file: m[1], line: +m[2], col: +m[3], kind: m[4] === 'warning' ? 'warning' : 'error', msg: m[5] }));
+}
+
+const E = { open: false }; // the editor's state
+
+async function openEditor(id) {
+  const s = state.songs[id];
+  if (!s) return;
+  if (sheetOpen) {
+    // Like the viewer: take over the song sheet's history entry.
+    sheetOpen = false;
+    $('#sheet').hidden = true;
+    $('#sheet-backdrop').hidden = true;
+    sheetOnClose = null;
+    replaceTopLayer(closeEditor);
+  } else pushLayer(closeEditor);
+  const src = ghSource(s);
+  Object.assign(E, { open: true, id, song: s, src, d: null, run: null, preview: null });
+  const root = $('#editor');
+  root.innerHTML = `
+    <div class="ed-bar">
+      <button class="icon-btn" data-ed="close" aria-label="Close editor">✕</button>
+      <div class="ed-title"><strong>${esc(s.title)}</strong><span>${esc(src.lyPath)}</span></div>
+      <button class="icon-btn" data-ed="more" aria-label="More options">⋯</button>
+    </div>
+    <textarea class="ed-text" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="${state.settings.edWrap ? 'soft' : 'off'}" disabled></textarea>
+    <div class="ed-panel">
+      <div class="ed-status" aria-live="polite">Loading from GitHub…</div>
+      <div class="ed-actions">
+        <button class="btn" data-ed="preview" disabled>Preview</button>
+        <button class="btn" data-ed="view" hidden>View preview</button>
+        <button class="btn primary" data-ed="publish" disabled>Publish</button>
+      </div>
+    </div>`;
+  root.hidden = false;
+  document.body.classList.add('editor-open');
+  const ta = $('.ed-text', root);
+  ta.addEventListener('input', () => {
+    E.d.text = ta.value;
+    state.drafts ||= {};
+    if (E.d.text !== E.d.base) state.drafts[E.id] = E.d; else delete state.drafts[E.id];
+    save();
+    if (!E.run) edStatus();
+  });
+
+  loadEditorSource();
+}
+
+// Fill the editor from the draft, or from GitHub.
+async function loadEditorSource() {
+  const { id, src } = E;
+  const root = $('#editor'), ta = $('.ed-text', root);
+  const draft = state.drafts?.[id];
+  if (draft) E.d = draft;
+  else {
+    ta.disabled = true;
+    edStatus('Loading from GitHub…');
+    try {
+      const g = src.g;
+      const branch = await ghBranch(g);
+      const c = await ghJson(g, `contents/${encPath(src.lyPath)}?ref=${encodeURIComponent(branch)}`);
+      const text = unb64utf8(c.content || '');
+      E.d = { text, base: text, baseSha: c.sha, lyPath: src.lyPath };
+    } catch (err) {
+      if (!E.open || E.id !== id) return;
+      edStatus(err.status === 404
+        ? `There’s no <b>${esc(src.lyPath)}</b> in ${esc(src.g.owner)}/${esc(src.g.repo)}, so this score can’t be edited here.`
+        : esc(err.message), 'bad');
+      return;
+    }
+  }
+  if (!E.open || E.id !== id) return;
+  ta.value = E.d.text;
+  ta.disabled = false;
+  root.querySelector('[data-ed="preview"]').disabled = false;
+  root.querySelector('[data-ed="publish"]').disabled = false;
+  edStatus();
+}
+
+function closeEditor() {
+  if (!E.open) return;
+  E.open = false;
+  E.run = null; // stops a preview that's waiting
+  $('#editor').hidden = true;
+  $('#editor').innerHTML = '';
+  document.body.classList.remove('editor-open');
+  if (E.d && E.d.text !== E.d.base) toast('Your changes are kept as a draft');
+  flush();
+  render();
+}
+
+// The status panel: progress, or the result of the last preview, or the draft state.
+function edStatus(html, tone = '') {
+  const el = $('#editor .ed-status');
+  if (!el) return;
+  const viewBtn = $('#editor [data-ed="view"]');
+  if (html != null) { el.innerHTML = html; el.className = `ed-status ${tone}`; return; }
+  const p = E.preview, changed = E.d && E.d.text !== E.d.base;
+  viewBtn.hidden = !p?.pdf;
+  let out = changed ? '<span class="tag amber">Draft</span> Not published yet.' : 'No changes yet. Edit the LilyPond source above, then tap <b>Preview</b>.';
+  if (p) {
+    const errs = p.messages.filter(m => m.kind === 'error'), warns = p.messages.filter(m => m.kind === 'warning');
+    const stale = p.text !== E.d.text ? ' <span class="muted">(you’ve edited since)</span>' : '';
+    out = (errs.length || !p.pdf
+      ? `<b class="bad">✕ LilyPond found ${plural(errs.length || 1, 'error')}${p.pdf ? '' : ' and made no PDF'}.</b>${stale}`
+      : `<b class="good">✓ Engraved without errors${warns.length ? ` (${plural(warns.length, 'warning')})` : ''}.</b>${stale}`) +
+      (p.messages.length ? `<ul class="ed-msgs">${p.messages.slice(0, 30).map(m =>
+        `<li><button class="link ${m.kind}" data-line="${m.line}" data-col="${m.col}" ${m.file.endsWith(E.src.name + '.ly') ? '' : 'disabled'}>${m.file.endsWith(E.src.name + '.ly') ? `Line ${m.line}` : esc(m.file) + ':' + m.line}: ${esc(m.msg)}</button></li>`).join('')}</ul>` : '') +
+      `<details><summary>LilyPond’s full output</summary><pre>${esc(p.log)}</pre></details>`;
+  }
+  el.innerHTML = out;
+  el.className = 'ed-status';
+}
+
+function gotoLine(line, col) {
+  const ta = $('#editor .ed-text');
+  const lines = ta.value.split('\n');
+  let pos = 0;
+  for (let i = 0; i < line - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+  pos = Math.min(ta.value.length, pos + Math.max(0, col - 1));
+  ta.focus();
+  ta.setSelectionRange(pos, Math.min(ta.value.length, pos + 1));
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+  ta.scrollTop = Math.max(0, (line - 4) * lh);
+}
+
+async function previewEdit() {
+  if (E.run) return;
+  const run = E.run = {};
+  const { g, name, lyPath } = E.src;
+  const text = E.d.text;
+  const btn = $('#editor [data-ed="preview"]');
+  btn.textContent = 'Cancel preview';
+  const alive = () => E.run === run;
+  try {
+    edStatus('Sending your edit to GitHub…');
+    const branch = await ghBranch(g);
+    const head = (await ghJson(g, `git/ref/heads/${encPath(branch)}`)).object.sha;
+    const baseTree = (await ghJson(g, `git/commits/${head}`)).tree.sha;
+    const tree = (await ghJson(g, 'git/trees', { method: 'POST', body: { base_tree: baseTree, tree: [{ path: lyPath, mode: '100644', type: 'blob', content: text }] } })).sha;
+    const commit = (await ghJson(g, 'git/commits', { method: 'POST', body: { message: `Preview edit of ${lyPath} (from the BFS app)`, tree, parents: [head] } })).sha;
+    const ref = `preview/${name}`;
+    try { await ghApi(g, `git/refs/heads/${encPath(ref)}`, { method: 'PATCH', body: { sha: commit, force: true } }); }
+    catch (err) {
+      if (err.status !== 422 && err.status !== 404) throw err;
+      await ghApi(g, 'git/refs', { method: 'POST', body: { ref: `refs/heads/${ref}`, sha: commit } });
+    }
+    // Wait for the workflow to commit its output on top of the edit.
+    const start = Date.now();
+    let out = null;
+    while (!out) {
+      if (!alive()) return;
+      const secs = Math.round((Date.now() - start) / 1000);
+      edStatus(`Engraving on GitHub… ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}<br><span class="muted small">This usually takes about a minute. You can keep editing.</span>`);
+      if (secs > 480) throw new GhError('No preview came back after 8 minutes. Check that the repository has the “Preview score” workflow, and look at its Actions tab on GitHub.');
+      await sleep(4000);
+      if (!alive()) return;
+      const tip = (await ghJson(g, `git/ref/heads/${encPath(ref)}`)).object.sha;
+      if (tip === commit) continue;
+      const c = await ghJson(g, `git/commits/${tip}`);
+      if (c.parents[0]?.sha !== commit) throw new GhError('The preview branch was changed by something else. Tap Preview again.');
+      out = tip;
+    }
+    const raw = 'application/vnd.github.raw';
+    const log = await (await ghApi(g, `contents/preview-output/${encodeURIComponent(name)}.log?ref=${out}`, { accept: raw })).text();
+    let pdf = null;
+    try {
+      pdf = new Blob([await (await ghApi(g, `contents/preview-output/${encodeURIComponent(name)}.pdf?ref=${out}`, { accept: raw })).blob()], { type: 'application/pdf' });
+    } catch (err) { if (err.status !== 404) throw err; }
+    if (!alive()) return;
+    E.preview = { text, log, pdf, messages: lilyMessages(log) };
+    E.run = null;
+    edStatus();
+    if (pdf && !E.preview.messages.some(m => m.kind === 'error')) viewPreview();
+  } catch (err) {
+    console.error(err);
+    if (alive()) { E.run = null; edStatus(esc(err.message), 'bad'); }
+  } finally {
+    if (!E.run && E.open) btn.textContent = 'Preview';
+  }
+}
+
+function viewPreview() {
+  const p = E.preview;
+  if (!p?.pdf) return;
+  pushLayer(closeViewer);
+  openViewer($('#viewer'), {
+    items: [{ songId: 'preview', title: `Preview: ${E.song.title}` }], index: 0, label: '',
+    getSong: async () => ({ title: E.song.title, kind: 'pdf', blob: p.pdf }),
+    fit: state.settings.fit, fullscreen: false,
+    onFit: fit => { state.settings.fit = fit; save(); },
+    onClose: back
+  });
+  $('#viewer [data-v="notes"]').hidden = true;
+}
+
+function publishSheet() {
+  const { lyPath } = E.src;
+  if (E.d.text === E.d.base) { toast('There are no changes to publish'); return; }
+  const p = E.preview;
+  const warn = !p || p.text !== E.d.text ? 'You haven’t previewed this version of your edit.'
+    : !p.pdf || p.messages.some(m => m.kind === 'error') ? 'The preview of this version had errors.' : '';
+  openSheet(`
+    <h2>Publish your edit?</h2>
+    <p>This commits <b>${esc(lyPath)}</b> to ${esc(E.src.g.owner)}/${esc(E.src.g.repo)} on GitHub. GitHub then rebuilds the PDFs, which takes a couple of minutes.</p>
+    ${warn ? `<p class="bad">⚠ ${warn}</p>` : ''}
+    <label class="field">Description of the change<input id="pub-msg" value="${esc(`Edit ${E.song.title}`)}" autocomplete="off"></label>
+    <div class="stack">
+      <button class="btn primary" id="pub-go">Publish</button>
+      <button class="btn" data-act="close-sheet">Cancel</button>
+    </div>`);
+  $('#pub-go').addEventListener('click', () => publishEdit($('#pub-msg').value.trim() || `Edit ${E.song.title}`));
+}
+
+async function publishEdit(message, overwrite = false) {
+  const { g, name, lyPath } = E.src;
+  const { id, song } = E;
+  const text = E.d.text;
+  openSheet('<h2>Publishing…</h2><p class="muted">Sending your edit to GitHub.</p>', { locked: true });
+  let res;
+  try {
+    const branch = await ghBranch(g);
+    let sha = E.d.baseSha;
+    if (overwrite) sha = (await ghJson(g, `contents/${encPath(lyPath)}?ref=${encodeURIComponent(branch)}`)).sha;
+    res = await ghJson(g, `contents/${encPath(lyPath)}`, { method: 'PUT', body: { message, content: b64utf8(text), sha, branch } });
+  } catch (err) {
+    if (err.status === 409) {
+      openSheet(`<h2>Changed on GitHub</h2>
+        <p><b>${esc(lyPath)}</b> has been changed on GitHub since you started editing, so publishing would replace that change.</p>
+        <div class="stack">
+          <button class="btn danger" id="pub-over">Publish mine anyway</button>
+          <button class="btn" data-act="close-sheet">Cancel</button>
+        </div>
+        <p class="hint">To keep both, cancel, copy your edit somewhere safe, then use ⋯ › <b>Discard my changes</b> to load the latest version and redo your edit.</p>`);
+      $('#pub-over').addEventListener('click', () => publishEdit(message, true));
+    } else {
+      openSheet(`<h2>Couldn’t publish</h2><p>${esc(err.message)}</p><button class="btn primary" data-act="close-sheet">OK</button>`);
+    }
+    return;
+  }
+  ghApi(g, `git/refs/heads/${encPath(`preview/${name}`)}`, { method: 'DELETE' }).catch(() => {});
+  // If this exact text was previewed, use that PDF straight away; the next
+  // Update from GitHub replaces it with the one GitHub builds.
+  const p = E.preview;
+  const usePreview = p?.pdf && p.text === text && state.songs[id];
+  if (usePreview) {
+    await db.put('files', id, p.pdf);
+    Object.assign(song, { size: p.pdf.size, sha: 'edited-in-app' });
+  }
+  Object.assign(E.d, { base: text, baseSha: res.content.sha });
+  if (state.drafts) delete state.drafts[id];
+  await flush();
+  edStatus();
+  openSheet(`<h2>Published</h2>
+    <p>Your edit to <b>${esc(lyPath)}</b> is on GitHub. GitHub is now rebuilding the PDFs, which takes a couple of minutes.</p>
+    <p>${usePreview ? 'The app is already showing your previewed PDF. ' : ''}Tap <b>Update from GitHub</b> (Library tab) in a few minutes to get the PDF GitHub builds.</p>
+    <button class="btn primary" data-act="close-sheet">OK</button>`);
+}
+
+function editorMoreSheet() {
+  openSheet(`
+    <h2>${esc(E.src.lyPath)}</h2>
+    <div class="stack">
+      <button class="btn" id="ed-wrap">${state.settings.edWrap ? 'Don’t wrap long lines' : 'Wrap long lines'}</button>
+      <button class="btn danger" id="ed-discard" ${E.d && E.d.text !== E.d.base ? '' : 'disabled'}>Discard my changes</button>
+    </div>
+    <p class="hint">Discarding loads the latest version from GitHub. Previews are made on a temporary <b>preview/${esc(E.src.name)}</b> branch, which is deleted when you publish.</p>`);
+  $('#ed-wrap').addEventListener('click', () => {
+    state.settings.edWrap = !state.settings.edWrap;
+    save();
+    $('#editor .ed-text')?.setAttribute('wrap', state.settings.edWrap ? 'soft' : 'off');
+    closeSheet();
+  });
+  $('#ed-discard').addEventListener('click', () => {
+    if (state.drafts) delete state.drafts[E.id];
+    flush();
+    Object.assign(E, { d: null, preview: null, run: null });
+    closeSheet();
+    loadEditorSource();
+  });
+}
+
+$('#editor').addEventListener('click', e => {
+  const b = e.target.closest('[data-ed], [data-line]');
+  if (!b || b.disabled) return;
+  if (b.dataset.line) return gotoLine(+b.dataset.line, +b.dataset.col);
+  switch (b.dataset.ed) {
+    case 'close': return back();
+    case 'more': return editorMoreSheet();
+    case 'preview': if (E.run) { E.run = null; edStatus(); b.textContent = 'Preview'; return; } return previewEdit();
+    case 'view': return viewPreview();
+    case 'publish': return publishSheet();
+  }
+});
 
 /* ---------- backup ---------- */
 
@@ -1198,6 +1549,7 @@ document.addEventListener('click', e => {
     case 'import-files': return $('#pick-files').click();
     case 'github-import': return state.settings.github ? importFromGitHub() : githubSheet(); // first time: confirm the settings
     case 'github-settings': return githubSheet();
+    case 'sheet-edit-ly': return openEditor(t.closest('[data-id]').dataset.id);
     case 'select-start': ui.select = new Set(); return render();
     case 'select-done': ui.select = null; return render();
     case 'select-all': filterSongs(ui.q, ui.cat).forEach(s => ui.select.add(s.id)); return updateSongList();

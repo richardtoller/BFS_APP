@@ -1,6 +1,6 @@
 // Offline support for the Scores app: cache the app shell (including the PDF renderer),
 // serve cache-first and refresh in the background. The scores themselves live in IndexedDB.
-const CACHE = 'scores-v13';
+const CACHE = 'scores-v14';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/viewer.js',
