@@ -40,6 +40,11 @@ async function loadState() {
     state.addedCurrent = true;
     save();
   }
+  if (!state.capitalisedTitles) {
+    capitaliseOldTitles();
+    state.capitalisedTitles = true;
+    save();
+  }
   if (!state.removedNonChristmas) {
     dropNonChristmas();
     state.removedNonChristmas = true;
@@ -768,7 +773,45 @@ async function renderLibrary() {
 const fileKey = f => (f.webkitRelativePath || f.name).toLowerCase();
 const baseName = key => key.split('/').pop();
 const sameKey = (oldKey, key) => oldKey === key || (!oldKey.includes('/') && key.split('/').length === 2 && baseName(key) === oldKey);
-const titleFromFile = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+// How earlier versions turned a file name into a title (kept to recognise titles nobody has renamed).
+const rawTitleFromFile = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+// Title case: capitalise each word except short joining words (unless first or last).
+// Words that already contain a capital letter are left as they are, e.g. "BWV" or "McCartney".
+const SMALL_WORDS = new Set('a an and as at but by for from in into nor o’ of on or over the to up upon via with'.split(' '));
+const CONTRACTIONS = { heres: 'here’s', theres: 'there’s', twas: '’twas', tis: '’tis', dont: 'don’t', wont: 'won’t', cant: 'can’t', im: 'i’m', ive: 'i’ve', youre: 'you’re', whats: 'what’s', thats: 'that’s', oer: 'o’er', neer: 'ne’er', eer: 'e’er' };
+const capFirst = w => w.replace(/^([^a-z]*)([a-z])/, (m, pre, c) => pre + c.toUpperCase());
+function titleCase(text) {
+  const words = text.split(' ');
+  return words.map((w, i) => {
+    if (/[A-Z]/.test(w)) return w;
+    if (i === 0 && w === 'its') w = 'it’s'; // "its time to go now"
+    w = CONTRACTIONS[w] ?? w;
+    if (w === 'i' || w === 'o') return w.toUpperCase();
+    if (i > 0 && i < words.length - 1 && SMALL_WORDS.has(w)) return w;
+    return w.split('-').map(capFirst).join('-');
+  }).join(' ');
+}
+const titleFromFile = name => titleCase(rawTitleFromFile(name));
+
+// A title from a backup: if it was just the old lower-case file name, capitalise it.
+function savedTitle(b, s) {
+  const name = s.file.split('/').pop();
+  return b.title === rawTitleFromFile(name) ? titleFromFile(name) : b.title;
+}
+
+// Songs imported before titles were capitalised: fix the ones still using their file name.
+function capitaliseOldTitles() {
+  const fixed = new Map();
+  for (const s of songs()) {
+    const name = s.file.split('/').pop();
+    if (s.title !== rawTitleFromFile(name)) continue;
+    const t = titleFromFile(name);
+    if (t !== s.title) { s.title = t; fixed.set(s.id, t); }
+  }
+  for (const p of state.programmes) for (const i of p.items) if (fixed.has(i.songId)) i.title = fixed.get(i.songId);
+  return fixed.size;
+}
 
 function guessCategory(text) {
   return XMAS.test(text) ? ['christmas'] : [];
@@ -1038,7 +1081,7 @@ async function restoreBackup(file) {
   const idMap = new Map();
   for (const b of data.songs || []) {
     const s = songs().find(x => sameKey(b.key, x.key));
-    if (s) { s.title = b.title; s.cats = b.cats || []; if (b.notes) s.notes = b.notes; idMap.set(b.id, s.id); }
+    if (s) { s.title = savedTitle(b, s); s.cats = b.cats || []; if (b.notes) s.notes = b.notes; idMap.set(b.id, s.id); }
     else idMap.set(b.id, b.id);
     if (!s) {
       state.pending ||= {};
@@ -1068,7 +1111,7 @@ function applyPending() {
     const pk = Object.keys(state.pending).find(k => sameKey(k, s.key));
     const b = pk && state.pending[pk];
     if (!b) continue;
-    s.title = b.title;
+    s.title = savedTitle(b, s);
     s.cats = b.cats || [];
     if (b.notes) s.notes = b.notes;
     for (const p of state.programmes) for (const i of p.items) if (i.songId === b.id) i.songId = s.id;
