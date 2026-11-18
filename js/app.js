@@ -713,11 +713,12 @@ async function renderLibrary() {
     <section class="card">
       <h2>Scores</h2>
       <p>${all.length ? `${plural(all.length, 'song')} (${pdfs} PDF, ${all.length - pdfs} image) · ${fmtSize(bytes)}` : 'No scores imported yet.'}</p>
+      <h3>From this phone</h3>
       <div class="stack">
-        <button class="btn primary" data-act="import-folder">${all.length ? 'Update from the _BFS folder' : 'Choose the _BFS folder'}</button>
-        <button class="btn" data-act="import-folder">Import a sub-folder</button>
+        <button class="btn primary" data-act="import-folder">Import from phone</button>
         <button class="btn" data-act="import-files">Add individual files</button>
       </div>
+      <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import from phone</b> again and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
       <h3>From GitHub</h3>
       <p class="muted small">${esc(ghConfig().owner)}/${esc(ghLabel(ghConfig()))}${ghConfig().token ? ' · token saved' : ''}</p>
       <div class="stack">
@@ -726,8 +727,6 @@ async function renderLibrary() {
       </div>
       <p class="hint">Downloads the scores in that GitHub folder (not its sub-folders). Tap <b>Update from GitHub</b> after changing scores there: only new and changed files are downloaded, and your titles, categories and programmes are kept. A private repository needs an access token: see <b>GitHub settings</b>.</p>
       <p class="muted small" id="engine-info"></p>
-      <h3>From this phone</h3>
-      <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import a sub-folder</b> and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
     </section>
     <section class="card">
       <h2>Categories</h2>
@@ -888,8 +887,7 @@ async function importFiles(fileList) {
     from: folder ?? 'the chosen files', counts: { added, updated, same, failed }, missing,
     subsHtml: subs.length ? `<p>${plural(subs.reduce((t, [, n]) => t + n, 0), 'score')} in sub-folders skipped:</p>
       <ul class="sub-list">${subs.map(([name, n]) => `<li><b>${esc(name)}</b> <span class="muted small">${plural(n, 'score')}</span></li>`).join('')}</ul>
-      <p class="muted small">To add one, tap <b>Import a sub-folder</b> and open that folder in the picker.</p>
-      <button class="btn" data-act="import-folder">Import a sub-folder…</button>` : ''
+      <p class="muted small">To add one, tap <b>Import from phone</b> (Library tab) again and open that folder in the picker.</p>` : ''
   });
 }
 
