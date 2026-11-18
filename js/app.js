@@ -255,7 +255,7 @@ function renderSongs() {
         <div class="welcome-art" aria-hidden="true">𝄞</div>
         <h2>Add your scores</h2>
         <p>Choose your <b>songs/_BFS</b> folder, or download the scores from GitHub. The app copies the PDFs and pictures into its own storage on this phone, so they open instantly, even offline.</p>
-        <button class="btn primary big" data-act="import-folder">Choose the _BFS folder</button>
+        <button class="btn primary big" data-act="import-folder">Import scores</button>
         <button class="btn primary big" data-act="github-import">Download from GitHub</button>
         <button class="btn" data-act="import-files">Choose files instead</button>
         <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. If you can only pick files, open that folder, then use ⋮ › <b>Select all</b>.</p>
