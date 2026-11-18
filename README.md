@@ -11,7 +11,8 @@ It's an installable web app (PWA). It runs in your phone's browser, can be added
   - A **private repository needs an access token**. On GitHub, go to *Settings › Developer settings › Personal access tokens › Fine-grained tokens*, choose *Generate new token*, pick *Only select repositories* and your scores repository, and under *Permissions* set *Contents* to *Read-only*. Paste the token into **GitHub settings**. It is stored only in the app on your phone and is never included in backups.
 - **Song names**: names come from the file names with normal capitalisation, so `the_lark_in_the_morn.pdf` becomes *The Lark in the Morn* and `heres_adieu….pdf` becomes *Here’s Adieu…*. Words that already have capitals in the file name are left as they are.
 - **Edit a score's LilyPond source**: for a score downloaded from GitHub, tap ⋯ › **Edit LilyPond source**. The app opens `src/<name>.ly` (for `pdf/<name>.pdf`) in an editor.
-  - **Preview** sends the edit to a temporary `preview/<name>` branch, where the repository's *Preview score* workflow engraves it with LilyPond (about a minute). The PDF opens in the viewer, or LilyPond's errors are listed: tap one to jump to that line. `main` isn't touched.
+  - **Preview** engraves the edit on the phone, in a second or two, with LilyPond 2.26.0 built into the app. It works offline. The PDF opens in the viewer, or LilyPond's errors are listed: tap one to jump to that line. The first preview downloads LilyPond (30 MB, once only; or use *Library › download it now*). The repository's include files and fonts are copied to the phone and kept up to date when online.
+  - The scores repository builds its PDFs with the same LilyPond version, so the preview matches the published PDF. If previewing doesn't work on a phone, ⋯ › **Preview on GitHub instead** sends the edit to a temporary `preview/<name>` branch, where the repository's *Preview score* workflow engraves it (about a minute). `main` isn't touched.
   - **Publish** commits the `.ly` to `main` with your description of the change. The repository's *Build PDFs* workflow then rebuilds the PDFs, and the preview branch is deleted. If the file was changed on GitHub since you opened it, the app asks before replacing that change.
   - Unpublished edits are kept as drafts on the phone, marked *(draft)* in the ⋯ menu, until you publish or discard them.
   - Editing needs an access token with **Contents: Read and write** on the repository, and the repository needs `.github/workflows/preview-score.yml`.
@@ -49,6 +50,7 @@ python3 -m http.server 8000
 | `js/app.js` | Songs, categories, programmes, importing (folder and GitHub), backup |
 | `js/viewer.js` | Full-screen viewer: zoom, page turning, programme navigation |
 | `js/db.js` | IndexedDB storage for the score files and app data |
+| `vendor/lilypond-wasm/` | [LilyPond 2.26.0 compiled to WebAssembly](https://github.com/sightread/lilypond-wasm) (GPL-3.0-or-later), for previewing edits. It is cached on the phone the first time it's used, separately from the app, so app updates don't download it again |
 | `vendor/pdfjs/` | [PDF.js](https://mozilla.github.io/pdf.js/) 4.10.38 (Apache 2.0), stored here so it works offline |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest`, `icons/` | Installable-app metadata and icons |

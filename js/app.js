@@ -725,6 +725,7 @@ async function renderLibrary() {
         <button class="btn" data-act="github-settings">GitHub settings</button>
       </div>
       <p class="hint">Downloads the scores in that GitHub folder (not its sub-folders). Tap <b>Update from GitHub</b> after changing scores there: only new and changed files are downloaded, and your titles, categories and programmes are kept. A private repository needs an access token: see <b>GitHub settings</b>.</p>
+      <p class="muted small" id="engine-info"></p>
       <h3>From this phone</h3>
       <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import a sub-folder</b> and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
     </section>
@@ -760,6 +761,7 @@ async function renderLibrary() {
       <button class="btn danger" data-act="wipe">Remove all scores…</button>
     </section>` : ''}`;
   $('#set-fs').addEventListener('change', e => { state.settings.fullscreen = e.target.checked; save(); });
+  showEngineInfo();
   if (navigator.storage?.estimate) {
     const [est, persisted] = await Promise.all([navigator.storage.estimate(), navigator.storage.persisted?.() ?? false]);
     const el = $('#storage-info');
@@ -913,6 +915,28 @@ function importSummary({ from, counts: { added, updated, same, failed }, missing
 
 $('#pick-folder').addEventListener('change', e => { const f = e.target.files; if (f?.length) importFiles(f); e.target.value = ''; });
 $('#pick-files').addEventListener('change', e => { const f = e.target.files; if (f?.length) importFiles(f); e.target.value = ''; });
+
+// Library: whether the LilyPond engine for previews is on this phone yet.
+async function showEngineInfo(progress) {
+  const el = $('#engine-info');
+  if (!el) return;
+  if (progress) { el.textContent = progress; return; }
+  el.innerHTML = await engineDownloaded()
+    ? 'LilyPond for previewing edits: on this phone, works offline.'
+    : 'LilyPond for previewing edits: not downloaded yet (30 MB, once only). It downloads the first time you preview an edit, or <button class="link small" data-act="engine-download">download it now</button>.';
+}
+
+async function downloadEngine() {
+  try {
+    await lilyEngine(({ loadedBytes, totalBytes }) => showEngineInfo(`Downloading LilyPond… ${Math.round(loadedBytes / 1e6)} of ${Math.round(totalBytes / 1e6)} MB`));
+    toast('LilyPond downloaded');
+  } catch (err) {
+    toast('Couldn’t download LilyPond: ' + err.message, 5000);
+  } finally {
+    if (!E.open) disposeEngine();
+    showEngineInfo();
+  }
+}
 
 /* ---------- downloading from GitHub ---------- */
 
@@ -1190,7 +1214,9 @@ async function loadEditorSource() {
 function closeEditor() {
   if (!E.open) return;
   E.open = false;
-  E.run = null; // stops a preview that's waiting
+  E.run?.abort?.abort();
+  E.run = null; // stops a preview that's running or waiting
+  disposeEngine();
   $('#editor').hidden = true;
   $('#editor').innerHTML = '';
   document.body.classList.remove('editor-open');
@@ -1234,6 +1260,124 @@ function gotoLine(line, col) {
   ta.scrollTop = Math.max(0, (line - 4) * lh);
 }
 
+/* Previewing on the phone, with LilyPond 2.26 compiled to WebAssembly (vendor/lilypond-wasm).
+   The scores repository builds its PDFs with the same version, so the preview matches. */
+
+const ENGINE_CACHE = 'lilypond-engine-2.26.0'; // keep in step with sw.js
+const ENGINE_URL = new URL('../vendor/lilypond-wasm/src/index.mjs', import.meta.url).href;
+const ENGINE_WASM = new URL('../vendor/lilypond-wasm/dist/lilypond.wasm', import.meta.url).href;
+let lilyCompiler = null;
+
+async function lilyEngine(onProgress) {
+  if (typeof WebAssembly !== 'object' || typeof DecompressionStream !== 'function' || typeof Worker !== 'function') {
+    throw new Error('This browser can’t run LilyPond.');
+  }
+  if (!lilyCompiler) lilyCompiler = (await import(ENGINE_URL)).createReusableCompiler();
+  await lilyCompiler.preload({ onProgress });
+  return lilyCompiler;
+}
+// Frees the engine's memory (it is unpacked again, from the cache, next time).
+function disposeEngine() { lilyCompiler?.dispose(); lilyCompiler = null; }
+
+async function engineDownloaded() {
+  try { return !!(await (await caches.open(ENGINE_CACHE)).match(ENGINE_WASM)); } catch { return false; }
+}
+
+const normPath = p => {
+  const out = [];
+  for (const part of p.split('/')) { if (part === '..') out.pop(); else if (part && part !== '.') out.push(part); }
+  return out.join('/');
+};
+// The engine's files live under /input and it runs from /output, so font paths written
+// relative to the build folder (src/, as in the repository's workflows) are made absolute.
+const fixFontPaths = (text, dir) => text.replace(/(ly:font-config-add-font\s+")([^"]+)"/g,
+  (m, head, path) => `${head}${path.startsWith('/') ? path : '/input/' + normPath(`${dir}/${path}`)}"`);
+
+// The files a score needs besides itself: the repository's include files (.ily) and fonts,
+// at their repository paths. Kept on the phone so previews work offline; refreshed when online.
+async function lilySupportFiles(g) {
+  const repo = `${g.owner}/${g.repo}`.toLowerCase();
+  let cache = await db.get('kv', 'lyfiles').catch(() => null);
+  if (!cache || cache.repo !== repo) cache = { repo, files: {}, updated: 0 };
+  if (Date.now() - cache.updated > 5 * 60e3) {
+    try {
+      const branch = await ghBranch(g);
+      const head = (await ghJson(g, `git/ref/heads/${encPath(branch)}`)).object.sha;
+      const tree = await ghJson(g, `git/trees/${head}?recursive=1`);
+      const files = {};
+      for (const t of tree.tree.filter(t => t.type === 'blob' && /\.(ily|ttf|otf)$/i.test(t.path) && t.size < 10e6)) {
+        const old = cache.files[t.path];
+        if (old?.sha === t.sha) { files[t.path] = old; continue; }
+        const blob = await ghJson(g, `git/blobs/${t.sha}`);
+        const bytes = Uint8Array.from(atob(blob.content.replace(/\s/g, '')), c => c.charCodeAt(0));
+        files[t.path] = { sha: t.sha, data: /\.ily$/i.test(t.path) ? new TextDecoder().decode(bytes) : bytes };
+      }
+      cache = { repo, files, updated: Date.now() };
+      await db.put('kv', 'lyfiles', cache);
+    } catch (err) {
+      if (!cache.updated) throw err; // never fetched: can't preview yet
+      console.warn('Using saved style files and fonts', err); // offline: use the saved copies
+    }
+  }
+  return cache.files;
+}
+
+async function previewHere() {
+  if (E.run) return;
+  const run = E.run = { abort: new AbortController() };
+  const alive = () => E.run === run;
+  const btn = $('#editor [data-ed="preview"]');
+  btn.textContent = 'Cancel preview';
+  const { g, lyPath } = E.src;
+  const dir = lyPath.includes('/') ? lyPath.slice(0, lyPath.lastIndexOf('/')) : '';
+  const text = E.d.text;
+  let tick = 0;
+  try {
+    edStatus('Getting the style file and fonts…');
+    const support = await lilySupportFiles(g);
+    if (!alive()) return;
+    edStatus('Starting LilyPond…');
+    const compiler = await lilyEngine(({ loadedBytes, totalBytes }) => {
+      if (alive()) edStatus(`Downloading LilyPond for previews (once only)… ${Math.round(loadedBytes / 1e6)} of ${Math.round(totalBytes / 1e6)} MB`);
+    });
+    if (!alive()) return;
+    const start = Date.now();
+    const engraving = () => edStatus(`Engraving on this phone… ${Math.round((Date.now() - start) / 1000)} s`);
+    engraving();
+    tick = setInterval(() => alive() && engraving(), 1000);
+    const files = {};
+    for (const [path, f] of Object.entries(support)) {
+      if (path !== lyPath) files[path] = typeof f.data === 'string' ? fixFontPaths(f.data, dir) : f.data;
+    }
+    let log, pdf = null;
+    try {
+      const r = await compiler.compile(fixFontPaths(text, dir), {
+        format: 'pdf', filename: lyPath, files, includePaths: dir ? [dir] : [], signal: run.abort.signal
+      });
+      log = r.logs.join('\n');
+      pdf = new Blob([r.files['score.pdf']], { type: 'application/pdf' });
+    } catch (err) {
+      if (!Array.isArray(err.logs)) throw err; // not a LilyPond error in the score
+      log = err.logs.join('\n');
+    }
+    if (!alive()) return;
+    E.preview = { text, log, pdf, messages: lilyMessages(log) };
+    E.run = null;
+    edStatus();
+    if (pdf && !E.preview.messages.some(m => m.kind === 'error')) viewPreview();
+  } catch (err) {
+    if (err?.name === 'AbortError' || !alive()) return;
+    console.error(err);
+    disposeEngine(); // a failed engine is started afresh next time
+    E.run = null;
+    edStatus(`Couldn’t preview on this phone: ${esc(err.message)}<br><button class="link" data-ed="preview-github">Preview on GitHub instead</button>`, 'bad');
+  } finally {
+    clearInterval(tick);
+    if (!E.run && E.open) btn.textContent = 'Preview';
+  }
+}
+
+// Preview on GitHub: the fallback when the phone can't run LilyPond.
 async function previewEdit() {
   if (E.run) return;
   const run = E.run = {};
@@ -1372,9 +1516,11 @@ function editorMoreSheet() {
     <h2>${esc(E.src.lyPath)}</h2>
     <div class="stack">
       <button class="btn" id="ed-wrap">${state.settings.edWrap ? 'Don’t wrap long lines' : 'Wrap long lines'}</button>
+      <button class="btn" id="ed-gh">Preview on GitHub instead</button>
       <button class="btn danger" id="ed-discard" ${E.d && E.d.text !== E.d.base ? '' : 'disabled'}>Discard my changes</button>
     </div>
-    <p class="hint">Discarding loads the latest version from GitHub. Previews are made on a temporary <b>preview/${esc(E.src.name)}</b> branch, which is deleted when you publish.</p>`);
+    <p class="hint"><b>Preview</b> engraves the score on this phone with LilyPond 2.26, the same version GitHub uses to build the PDFs. If that doesn’t work on this phone, <b>Preview on GitHub instead</b> engraves it on GitHub (about a minute), using a temporary <b>preview/${esc(E.src.name)}</b> branch that is deleted when you publish. Discarding loads the latest version from GitHub.</p>`);
+  $('#ed-gh').addEventListener('click', () => { sheetOnClose = () => previewEdit(); closeSheet(); });
   $('#ed-wrap').addEventListener('click', () => {
     state.settings.edWrap = !state.settings.edWrap;
     save();
@@ -1397,7 +1543,10 @@ $('#editor').addEventListener('click', e => {
   switch (b.dataset.ed) {
     case 'close': return back();
     case 'more': return editorMoreSheet();
-    case 'preview': if (E.run) { E.run = null; edStatus(); b.textContent = 'Preview'; return; } return previewEdit();
+    case 'preview':
+      if (E.run) { E.run.abort?.abort(); E.run = null; edStatus(); b.textContent = 'Preview'; return; }
+      return previewHere();
+    case 'preview-github': return previewEdit();
     case 'view': return viewPreview();
     case 'publish': return publishSheet();
   }
@@ -1549,6 +1698,7 @@ document.addEventListener('click', e => {
     case 'import-files': return $('#pick-files').click();
     case 'github-import': return state.settings.github ? importFromGitHub() : githubSheet(); // first time: confirm the settings
     case 'github-settings': return githubSheet();
+    case 'engine-download': return downloadEngine();
     case 'sheet-edit-ly': return openEditor(t.closest('[data-id]').dataset.id);
     case 'select-start': ui.select = new Set(); return render();
     case 'select-done': ui.select = null; return render();
