@@ -705,6 +705,7 @@ function setupDrag(p) {
 /* ---------- Library tab ---------- */
 
 async function renderLibrary() {
+  const newDrafts = Object.entries(state.drafts || {}).filter(([id]) => isNewId(id)).sort((a, b) => (b[1].created || 0) - (a[1].created || 0));
   setTop('Library');
   const all = songs();
   const pdfs = all.filter(s => s.kind === 'pdf').length;
@@ -727,6 +728,18 @@ async function renderLibrary() {
       </div>
       <p class="hint">Downloads the scores in that GitHub folder (not its sub-folders). Tap <b>Update from GitHub</b> after changing scores there: only new and changed files are downloaded, and your titles, categories and programmes are kept. A private repository needs an access token: see <b>GitHub settings</b>.</p>
       <p class="muted small" id="engine-info"></p>
+    </section>
+    <section class="card">
+      <h2>New score from photos</h2>
+      <p class="hint">Photograph a score, and Claude (Anthropic's AI model) writes it as a LilyPond file in the BFS house style. You check it against the photos and correct it in the editor, then publish it to GitHub, which makes the PDF. Uses your own Claude API key; each conversion costs a little.</p>
+      <div class="stack">
+        <button class="btn primary" data-act="photo-camera">Take photos</button>
+        <button class="btn" data-act="photo-pick">Choose photos</button>
+        <button class="btn" data-act="claude-settings">Claude API key${claudeKey() ? ' · saved' : ''}</button>
+      </div>
+      ${newDrafts.length ? `<h3>Not published yet</h3><ul class="list">${newDrafts.map(([id, d]) => `
+        <li class="row"><button class="row-main" data-new-draft="${esc(id)}"><span class="row-title">${esc(d.title)}</span>
+        <span class="row-meta">${esc(d.lyPath)} · ${plural(d.photos || 0, 'photo')}</span></button><span class="chev" aria-hidden="true">›</span></li>`).join('')}</ul>` : ''}
     </section>
     <section class="card">
       <h2>Categories</h2>
@@ -1135,8 +1148,15 @@ function lilyMessages(log) {
 
 const E = { open: false }; // the editor's state
 
+// A new score (from photos) has the id 'new:<name>' and exists only as a draft until it is published.
+const isNewId = id => String(id).startsWith('new:');
+function newSource(name) {
+  const g = { ...ghConfig() };
+  return { g, name, lyPath: [g.srcPath, name + '.ly'].filter(Boolean).join('/') };
+}
+
 async function openEditor(id) {
-  const s = state.songs[id];
+  const s = isNewId(id) ? state.drafts?.[id] && { title: state.drafts[id].title } : state.songs[id];
   if (!s) return;
   if (sheetOpen) {
     // Like the viewer: take over the song sheet's history entry.
@@ -1146,8 +1166,9 @@ async function openEditor(id) {
     sheetOnClose = null;
     replaceTopLayer(closeEditor);
   } else pushLayer(closeEditor);
-  const src = ghSource(s);
-  Object.assign(E, { open: true, id, song: s, src, d: null, run: null, preview: null });
+  const src = isNewId(id) ? newSource(id.slice(4)) : ghSource(s);
+  Object.assign(E, { open: true, id, song: s, src, d: null, run: null, preview: E.pendingPreview || null });
+  E.pendingPreview = null;
   const root = $('#editor');
   root.innerHTML = `
     <div class="ed-bar">
@@ -1231,7 +1252,8 @@ function edStatus(html, tone = '') {
   if (html != null) { el.innerHTML = html; el.className = `ed-status ${tone}`; return; }
   const p = E.preview, changed = E.d && E.d.text !== E.d.base;
   viewBtn.hidden = !p?.pdf;
-  let out = changed ? '<span class="tag amber">Draft</span> Not published yet.' : 'No changes yet. Edit the LilyPond source above, then tap <b>Preview</b>.';
+  const head = E.d?.isNew ? `<p class="ed-notes"><span class="tag amber">New score</span> Not published yet. Check it against the photos (⋯ › <b>View the photos</b>), then tap <b>Publish</b>.</p>${E.d.notes ? `<p class="ed-notes"><b>Claude’s notes:</b> ${esc(E.d.notes)}</p>` : ''}` : '';
+  let out = E.d?.isNew ? '' : changed ? '<span class="tag amber">Draft</span> Not published yet.' : 'No changes yet. Edit the LilyPond source above, then tap <b>Preview</b>.';
   if (p) {
     const errs = p.messages.filter(m => m.kind === 'error'), warns = p.messages.filter(m => m.kind === 'warning');
     const stale = p.text !== E.d.text ? ' <span class="muted">(you’ve edited since)</span>' : '';
@@ -1242,7 +1264,7 @@ function edStatus(html, tone = '') {
         `<li><button class="link ${m.kind}" data-line="${m.line}" data-col="${m.col}" ${m.file.endsWith(E.src.name + '.ly') ? '' : 'disabled'}>${m.file.endsWith(E.src.name + '.ly') ? `Line ${m.line}` : esc(m.file) + ':' + m.line}: ${esc(m.msg)}</button></li>`).join('')}</ul>` : '') +
       `<details><summary>LilyPond’s full output</summary><pre>${esc(p.log)}</pre></details>`;
   }
-  el.innerHTML = out;
+  el.innerHTML = head + out;
   el.className = 'ed-status';
 }
 
@@ -1320,6 +1342,25 @@ async function lilySupportFiles(g) {
   return cache.files;
 }
 
+// Engrave one score with the repository's include files and fonts. Returns LilyPond's
+// output, and the PDF if it made one; LilyPond errors in the score don't throw.
+async function compileLy(compiler, support, text, lyPath, signal) {
+  const dir = lyPath.includes('/') ? lyPath.slice(0, lyPath.lastIndexOf('/')) : '';
+  const files = {};
+  for (const [path, f] of Object.entries(support)) {
+    if (path !== lyPath) files[path] = typeof f.data === 'string' ? fixFontPaths(f.data, dir) : f.data;
+  }
+  try {
+    const r = await compiler.compile(fixFontPaths(text, dir), {
+      format: 'pdf', filename: lyPath, files, includePaths: dir ? [dir] : [], signal
+    });
+    return { log: r.logs.join('\n'), pdf: new Blob([r.files['score.pdf']], { type: 'application/pdf' }) };
+  } catch (err) {
+    if (!Array.isArray(err.logs)) throw err; // not a LilyPond error in the score
+    return { log: err.logs.join('\n'), pdf: null };
+  }
+}
+
 async function previewHere() {
   if (E.run) return;
   const run = E.run = { abort: new AbortController() };
@@ -1327,7 +1368,6 @@ async function previewHere() {
   const btn = $('#editor [data-ed="preview"]');
   btn.textContent = 'Cancel preview';
   const { g, lyPath } = E.src;
-  const dir = lyPath.includes('/') ? lyPath.slice(0, lyPath.lastIndexOf('/')) : '';
   const text = E.d.text;
   let tick = 0;
   try {
@@ -1343,21 +1383,7 @@ async function previewHere() {
     const engraving = () => edStatus(`Engraving on this phone… ${Math.round((Date.now() - start) / 1000)} s`);
     engraving();
     tick = setInterval(() => alive() && engraving(), 1000);
-    const files = {};
-    for (const [path, f] of Object.entries(support)) {
-      if (path !== lyPath) files[path] = typeof f.data === 'string' ? fixFontPaths(f.data, dir) : f.data;
-    }
-    let log, pdf = null;
-    try {
-      const r = await compiler.compile(fixFontPaths(text, dir), {
-        format: 'pdf', filename: lyPath, files, includePaths: dir ? [dir] : [], signal: run.abort.signal
-      });
-      log = r.logs.join('\n');
-      pdf = new Blob([r.files['score.pdf']], { type: 'application/pdf' });
-    } catch (err) {
-      if (!Array.isArray(err.logs)) throw err; // not a LilyPond error in the score
-      log = err.logs.join('\n');
-    }
+    const { log, pdf } = await compileLy(compiler, support, text, lyPath, run.abort.signal);
     if (!alive()) return;
     E.preview = { text, log, pdf, messages: lilyMessages(log) };
     E.run = null;
@@ -1453,30 +1479,32 @@ function publishSheet() {
   const warn = !p || p.text !== E.d.text ? 'You haven’t previewed this version of your edit.'
     : !p.pdf || p.messages.some(m => m.kind === 'error') ? 'The preview of this version had errors.' : '';
   openSheet(`
-    <h2>Publish your edit?</h2>
-    <p>This commits <b>${esc(lyPath)}</b> to ${esc(E.src.g.owner)}/${esc(E.src.g.repo)} on GitHub. GitHub then rebuilds the PDFs, which takes a couple of minutes.</p>
+    <h2>${E.d.isNew ? 'Publish this new score?' : 'Publish your edit?'}</h2>
+    <p>This ${E.d.isNew ? 'adds' : 'commits'} <b>${esc(lyPath)}</b> to ${esc(E.src.g.owner)}/${esc(E.src.g.repo)} on GitHub. GitHub then rebuilds the PDFs, which takes a couple of minutes.</p>
     ${warn ? `<p class="bad">⚠ ${warn}</p>` : ''}
-    <label class="field">Description of the change<input id="pub-msg" value="${esc(`Edit ${E.song.title}`)}" autocomplete="off"></label>
+    <label class="field">Description of the change<input id="pub-msg" value="${esc(`${E.d.isNew ? 'Add' : 'Edit'} ${E.song.title}`)}" autocomplete="off"></label>
     <div class="stack">
       <button class="btn primary" id="pub-go">Publish</button>
       <button class="btn" data-act="close-sheet">Cancel</button>
     </div>`);
-  $('#pub-go').addEventListener('click', () => publishEdit($('#pub-msg').value.trim() || `Edit ${E.song.title}`));
+  $('#pub-go').addEventListener('click', () => publishEdit($('#pub-msg').value.trim() || `${E.d.isNew ? 'Add' : 'Edit'} ${E.song.title}`));
 }
 
 async function publishEdit(message, overwrite = false) {
   const { g, name, lyPath } = E.src;
   const { id, song } = E;
   const text = E.d.text;
-  openSheet('<h2>Publishing…</h2><p class="muted">Sending your edit to GitHub.</p>', { locked: true });
+  openSheet(`<h2>Publishing…</h2><p class="muted">Sending ${E.d.isNew ? 'the new score' : 'your edit'} to GitHub.</p>`, { locked: true });
   let res;
   try {
     const branch = await ghBranch(g);
     let sha = E.d.baseSha;
     if (overwrite) sha = (await ghJson(g, `contents/${encPath(lyPath)}?ref=${encodeURIComponent(branch)}`)).sha;
-    res = await ghJson(g, `contents/${encPath(lyPath)}`, { method: 'PUT', body: { message, content: b64utf8(text), sha, branch } });
+    res = await ghJson(g, `contents/${encPath(lyPath)}`, { method: 'PUT', body: { message, content: b64utf8(text), ...(sha ? { sha } : {}), branch } });
   } catch (err) {
-    if (err.status === 409) {
+    if (E.d.isNew && err.status === 422) {
+      openSheet(`<h2>Name already used</h2><p>There’s already a <b>${esc(lyPath)}</b> on GitHub. Discard this new score and convert the photos again: the app will pick a free name.</p><button class="btn primary" data-act="close-sheet">OK</button>`);
+    } else if (err.status === 409) {
       openSheet(`<h2>Changed on GitHub</h2>
         <p><b>${esc(lyPath)}</b> has been changed on GitHub since you started editing, so publishing would replace that change.</p>
         <div class="stack">
@@ -1494,28 +1522,41 @@ async function publishEdit(message, overwrite = false) {
   // If this exact text was previewed, use that PDF straight away; the next
   // Update from GitHub replaces it with the one GitHub builds.
   const p = E.preview;
-  const usePreview = p?.pdf && p.text === text && state.songs[id];
-  if (usePreview) {
+  const wasNew = E.d.isNew;
+  let usePreview = p?.pdf && p.text === text && (wasNew || state.songs[id]);
+  if (wasNew && usePreview) {
+    // Add the new score to the library straight away, as if downloaded from GitHub.
+    const pdfPath = [g.path, name + '.pdf'].filter(Boolean).join('/');
+    const sid = uid();
+    state.songs[sid] = {
+      id: sid, title: song.title, cats: hasDefaultCats() ? guessCategory(name + ' ' + song.title) : [], added: Date.now(),
+      key: `github:${g.owner}/${g.repo}/${pdfPath}`.toLowerCase(), file: `${g.repo}/${pdfPath}`, folder: ghLabel(g),
+      source: 'github', ghOwner: g.owner, ghRepo: g.repo, ghPath: pdfPath, kind: 'pdf', size: p.pdf.size, sha: 'edited-in-app'
+    };
+    await db.put('files', sid, p.pdf);
+  } else if (usePreview) {
     await db.put('files', id, p.pdf);
     Object.assign(song, { size: p.pdf.size, sha: 'edited-in-app' });
   }
-  Object.assign(E.d, { base: text, baseSha: res.content.sha });
+  if (wasNew) await deletePhotos(name);
+  Object.assign(E.d, { base: text, baseSha: res.content.sha, isNew: false, notes: '' });
   if (state.drafts) delete state.drafts[id];
   await flush();
   edStatus();
   openSheet(`<h2>Published</h2>
-    <p>Your edit to <b>${esc(lyPath)}</b> is on GitHub. GitHub is now rebuilding the PDFs, which takes a couple of minutes.</p>
-    <p>${usePreview ? 'The app is already showing your previewed PDF. ' : ''}Tap <b>Update from GitHub</b> (Library tab) in a few minutes to get the PDF GitHub builds.</p>
-    <button class="btn primary" data-act="close-sheet">OK</button>`);
+    <p>${wasNew ? 'The new score' : 'Your edit to'} <b>${esc(lyPath)}</b> is on GitHub. GitHub is now rebuilding the PDFs, which takes a couple of minutes.</p>
+    <p>${wasNew ? (usePreview ? 'It’s in your Songs list already, with the previewed PDF. ' : 'It will appear in your Songs list after the next update. ') : usePreview ? 'The app is already showing your previewed PDF. ' : ''}Tap <b>Update from GitHub</b> (Library tab) in a few minutes to get the PDF GitHub builds.</p>
+    <button class="btn primary" data-act="close-sheet">OK</button>`, wasNew ? { onClose: () => setTimeout(back, 0) } : {});
 }
 
 function editorMoreSheet() {
   openSheet(`
     <h2>${esc(E.src.lyPath)}</h2>
     <div class="stack">
+      ${E.d?.photos ? `<button class="btn" id="ed-photos">View the photos</button>` : ''}
       <button class="btn" id="ed-wrap">${state.settings.edWrap ? 'Don’t wrap long lines' : 'Wrap long lines'}</button>
       <button class="btn" id="ed-gh">Preview on GitHub instead</button>
-      <button class="btn danger" id="ed-discard" ${E.d && E.d.text !== E.d.base ? '' : 'disabled'}>Discard my changes</button>
+      <button class="btn danger" id="ed-discard" ${E.d && E.d.text !== E.d.base ? '' : 'disabled'}>${E.d?.isNew ? 'Discard this new score' : 'Discard my changes'}</button>
     </div>
     <p class="hint"><b>Preview</b> engraves the score on this phone with LilyPond 2.26, the same version GitHub uses to build the PDFs. If that doesn’t work on this phone, <b>Preview on GitHub instead</b> engraves it on GitHub (about a minute), using a temporary <b>preview/${esc(E.src.name)}</b> branch that is deleted when you publish. Discarding loads the latest version from GitHub.</p>`);
   $('#ed-gh').addEventListener('click', () => { sheetOnClose = () => previewEdit(); closeSheet(); });
@@ -1525,7 +1566,18 @@ function editorMoreSheet() {
     $('#editor .ed-text')?.setAttribute('wrap', state.settings.edWrap ? 'soft' : 'off');
     closeSheet();
   });
-  $('#ed-discard').addEventListener('click', () => {
+  $('#ed-photos')?.addEventListener('click', () => { sheetOnClose = () => viewPhotos(E.src.name, E.song.title, E.d.photos); closeSheet(); });
+  $('#ed-discard').addEventListener('click', async () => {
+    if (E.d?.isNew) {
+      if (!confirm('Discard this new score? The photos and the LilyPond text are deleted.')) return;
+      delete state.drafts[E.id];
+      await deletePhotos(E.src.name);
+      E.d = null;
+      await flush();
+      sheetOnClose = () => setTimeout(back, 0);
+      closeSheet();
+      return;
+    }
     if (state.drafts) delete state.drafts[E.id];
     flush();
     Object.assign(E, { d: null, preview: null, run: null });
@@ -1550,6 +1602,285 @@ $('#editor').addEventListener('click', e => {
   }
 });
 
+/* ---------- new scores from photos (Claude) ---------- */
+
+// Photos of a score are sent to Claude with the house style file and an example score; Claude
+// writes a LilyPond file, the app checks it with LilyPond (one repair round if it has errors),
+// and it opens in the editor as a new, unpublished score.
+
+const CLAUDE_MODEL = 'claude-opus-5-5';
+const SDK_URL = new URL('../vendor/anthropic-sdk/anthropic-sdk.mjs', import.meta.url).href;
+const claudeKey = () => state.settings.claude?.apiKey || '';
+const photos = { pages: [] }; // JPEG Blobs for the score being photographed
+
+const TRANSCRIPTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    file_name: { type: 'string', description: 'Lower-case words from the title joined by underscores, without .ly' },
+    title: { type: 'string', description: 'The title as printed' },
+    lilypond: { type: 'string', description: 'The whole LilyPond file' },
+    notes: { type: 'string', description: 'Short plain sentences about anything uncertain or worth checking, with bar numbers; empty if none' }
+  },
+  required: ['file_name', 'title', 'lilypond', 'notes'],
+  additionalProperties: false
+};
+
+function transcriptionPrompt(styleFiles, example) {
+  return `You transcribe photographs of sheet music into LilyPond source files for the BFS choir's collection of scores. Each file is engraved with LilyPond 2.26.0 from the repository's src/ folder, together with the shared house style file below.
+
+Write the file in the house conventions that the example score shows:
+- Start with \\version "2.26.0", then \\include "_bfs-style.ily", then the verseSize line with its comment, as in the example.
+- A \\header with the title, and subtitle / subsubtitle for the source, the words and music credits and the arranger, as printed. Where the page credits M Norman or Matt Norman, write Matt Norman. Add copyright = "© ..." only when the page shows a copyright notice, copying it (with Matt Norman in full).
+- The music in variables that use \\global (key, time, \\partial) and \\fixed, one variable per voice, with lyrics under the notes in \\lyricmode, and a score layout like the example's, adjusted to the parts on the page.
+- Verses printed below the music go in \\markup \\verseColumn or \\verseColumns, one string per line, each line starting with a capital letter, with " " between verses.
+- LilyPond 2.26 syntax only. Put a bar check (|) at every barline.
+
+Transcribe exactly what is on the page: pitches, rhythms, rests, key and time signatures and their changes, ties, slurs, dynamics, tempo marks, repeats and endings, lyrics with their syllable division, and any verse text. Don't add to or "correct" the music. Where something is hard to read, choose the most likely reading and say so in notes, with the bar number. The photos are the pages in order.
+
+${styleFiles.map(([path, text]) => `<style_file path="${path}">\n${text}\n</style_file>`).join('\n')}
+<example_score path="${example.path}">
+${example.text}
+</example_score>`;
+}
+
+function claudeSheet(then) {
+  openSheet(`
+    <h2>Claude API key</h2>
+    <p class="muted small">Turning photos into LilyPond uses Claude, Anthropic's AI model, through your own API key.</p>
+    <label class="field">API key<input id="cl-key" type="password" value="${esc(claudeKey())}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-…"></label>
+    <p class="hint">Create a key at <b>platform.claude.com</b> › <b>Settings</b> › <b>API keys</b>, and add some credit under <b>Billing</b>. Each conversion is charged to that account: typically well under $1 for a few pages. The key is stored only in this app on this phone, is sent only to Anthropic, and isn't included in backups.</p>
+    <div class="stack">
+      <button class="btn primary" id="cl-save">Save</button>
+      ${claudeKey() ? '<button class="btn danger" id="cl-del">Remove the key</button>' : ''}
+    </div>`, { onClose: render });
+  $('#cl-save').addEventListener('click', () => {
+    const key = $('#cl-key').value.trim();
+    if (!key) { toast('Paste your API key first'); return; }
+    state.settings.claude = { ...state.settings.claude, apiKey: key };
+    save();
+    toast('Claude API key saved');
+    sheetOnClose = then || render;
+    closeSheet();
+  });
+  $('#cl-del')?.addEventListener('click', () => {
+    delete state.settings.claude;
+    save();
+    toast('Claude API key removed');
+    closeSheet();
+  });
+}
+
+// Phone photos are large: scale to at most 2000 px on the long side, as JPEG.
+async function shrinkPhoto(file, maxSide = 2000) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const k = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * k);
+  canvas.height = Math.round(bmp.height * k);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close?.();
+  return new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Couldn’t read the photo')), 'image/jpeg', 0.88));
+}
+
+async function addPhotos(fileList) {
+  const files = [...fileList].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(f.name));
+  if (!files.length) { toast('No photos chosen'); return; }
+  for (const f of files) {
+    try { photos.pages.push(await shrinkPhoto(f)); }
+    catch (err) { console.error(err); toast(`Couldn’t read ${f.name}`); }
+  }
+  photoSheet();
+}
+
+let photoUrls = [];
+function photoSheet() {
+  photoUrls.forEach(u => URL.revokeObjectURL(u));
+  photoUrls = photos.pages.map(b => URL.createObjectURL(b));
+  const n = photos.pages.length;
+  openSheet(`
+    <h2>New score from photos</h2>
+    <p class="muted small">${n ? `${plural(n, 'page')}, in this order. Add a photo for each page of the score.` : 'No pages yet.'}</p>
+    <div class="photo-grid">${photoUrls.map((u, i) => `
+      <figure><img src="${u}" alt="Page ${i + 1}"><figcaption>Page ${i + 1}</figcaption>
+        <button class="icon-btn" data-photo-del="${i}" aria-label="Remove page ${i + 1}">✕</button></figure>`).join('')}</div>
+    <div class="stack">
+      <button class="btn" data-act="photo-camera">${n ? 'Photograph another page' : 'Take a photo'}</button>
+      <button class="btn" data-act="photo-pick">Add from your photos</button>
+      <button class="btn primary" id="ph-go" ${n ? '' : 'disabled'}>Convert to LilyPond</button>
+    </div>
+    <p class="hint">For the best result, photograph each page flat and square-on, in good light, filling the frame. Claude reads the photos, the app checks the result with LilyPond, and it opens in the editor for you to compare with the photos and correct before publishing.</p>`,
+    { onClose: () => { photoUrls.forEach(u => URL.revokeObjectURL(u)); photoUrls = []; render(); } });
+  $('#ph-go').addEventListener('click', convertPhotos);
+  $('#sheet-body').addEventListener('click', e => {
+    const b = e.target.closest('[data-photo-del]');
+    if (!b) return;
+    photos.pages.splice(+b.dataset.photoDel, 1);
+    photoSheet();
+  });
+}
+
+const blobToBase64 = blob => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1]);
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(blob);
+});
+
+const photoKey = (name, i) => `photo:${name}:${i}`;
+async function savePhotos(name, pages) { for (const [i, b] of pages.entries()) await db.put('files', photoKey(name, i), b); }
+async function deletePhotos(name) { for (let i = 0; i < 40; i++) await db.del('files', photoKey(name, i)).catch(() => {}); }
+function viewPhotos(name, title, count) {
+  pushLayer(closeViewer);
+  openViewer($('#viewer'), {
+    items: Array.from({ length: count }, (_, i) => ({ songId: photoKey(name, i), title: `${title}: photo ${i + 1}` })), index: 0, label: 'Photos',
+    getSong: async id => { const blob = await db.get('files', id); return blob ? { title, kind: 'image', blob } : null; },
+    fit: state.settings.fit, fullscreen: false,
+    onFit: fit => { state.settings.fit = fit; save(); },
+    onClose: back
+  });
+  $('#viewer [data-v="notes"]').hidden = true;
+}
+
+// A file name that isn't used on GitHub or by another new score.
+function freeName(raw, taken) {
+  const base = String(raw || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'new_score';
+  let name = base;
+  for (let n = 2; taken.has(name) || state.drafts?.['new:' + name]; n++) name = `${base}_${n}`;
+  return name;
+}
+
+// The example score shown to Claude, and the names already used in the source folder.
+async function exampleScore(g) {
+  const branch = await ghBranch(g);
+  const list = await ghJson(g, `contents/${encPath(g.srcPath || '')}?ref=${encodeURIComponent(branch)}`.replace('contents/?', 'contents?'));
+  const lys = list.filter(f => f.type === 'file' && /\.ly$/.test(f.name)).map(f => f.name);
+  const pick = lys.includes('bold_riley.ly') ? 'bold_riley.ly' : lys.find(n => n !== 'template.ly');
+  if (!pick) throw new Error(`There are no scores in ${g.srcPath || 'the repository'} to show Claude as an example.`);
+  const path = [g.srcPath, pick].filter(Boolean).join('/');
+  const text = await (await ghApi(g, `contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, { accept: 'application/vnd.github.raw' })).text();
+  return { example: { path, text }, taken: new Set(lys.map(n => n.slice(0, -3))) };
+}
+
+async function askClaude(Anthropic, client, system, messages, signal, status) {
+  const stream = client.beta.messages.stream({
+    model: CLAUDE_MODEL,
+    max_tokens: 64000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default', // if the request is declined, the API retries it on a suitable model
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'high', format: { type: 'json_schema', schema: TRANSCRIPTION_SCHEMA } },
+    cache_control: { type: 'ephemeral' }, // the repair round reuses the photos and prompt
+    system,
+    messages
+  }, { signal });
+  let chars = 0;
+  stream.on('text', t => { chars += t.length; status(`Writing the LilyPond file… ${(chars / 1000).toFixed(1)}k characters`); });
+  const msg = await stream.finalMessage();
+  if (msg.stop_reason === 'refusal') throw new Error('Claude declined to transcribe these photos.');
+  if (msg.stop_reason === 'max_tokens') throw new Error('The score was too long to transcribe in one go. Try fewer pages at a time.');
+  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  let out;
+  try { out = JSON.parse(text); } catch { throw new Error('Claude’s reply couldn’t be read. Please try again.'); }
+  return { ...out, content: msg.content };
+}
+
+function claudeErrorMessage(Anthropic, err) {
+  if (!Anthropic) return err.message;
+  if (err instanceof Anthropic.AuthenticationError) return 'Anthropic didn’t accept the API key. Check it in Claude API key settings.';
+  if (err instanceof Anthropic.PermissionDeniedError) return 'This API key isn’t allowed to use Claude. Check the key and your account in the Claude Console.';
+  if (err instanceof Anthropic.RateLimitError) return 'Too many requests, or the account’s usage limit was reached. Wait a minute and try again, or check Billing in the Claude Console.';
+  if (err instanceof Anthropic.BadRequestError) return `Anthropic couldn’t process the request: ${err.message}. If it mentions credit or billing, add credit in the Claude Console.`;
+  if (err instanceof Anthropic.APIConnectionError) return 'Couldn’t connect to Anthropic. Check you have an internet connection.';
+  if (err instanceof Anthropic.APIError) return `Anthropic replied with an error (${err.status ?? 'unknown'}). Try again in a minute.`;
+  return err.message;
+}
+
+async function convertPhotos() {
+  if (!photos.pages.length) return;
+  if (!claudeKey()) { claudeSheet(() => photoSheet()); return; }
+  const g = ghConfig();
+  if (!g.token) {
+    openSheet(`<h2>GitHub settings needed</h2><p>New scores are written in your repository’s house style and published to GitHub, so the app needs your GitHub settings and access token first.</p>
+      <button class="btn primary" data-act="github-settings">GitHub settings</button>`);
+    return;
+  }
+  const abort = new AbortController();
+  openSheet(`<h2>Converting to LilyPond…</h2><p id="cv-status" aria-live="polite">Starting…</p>
+    <p class="muted small">This usually takes one to a few minutes. Keep the app open.</p>
+    <button class="btn" id="cv-cancel">Cancel</button>`, { locked: true });
+  $('#cv-cancel').addEventListener('click', () => { abort.abort(); sheetLocked = false; photoSheet(); });
+  const status = t => { const el = $('#cv-status'); if (el) el.textContent = t; };
+  let Anthropic;
+  try {
+    status('Getting the house style from GitHub…');
+    const support = await lilySupportFiles(g);
+    const { example, taken } = await exampleScore(g);
+    const styleFiles = Object.entries(support).filter(([, f]) => typeof f.data === 'string').map(([p, f]) => [p, f.data]);
+    status('Preparing the photos…');
+    const images = await Promise.all(photos.pages.map(blobToBase64));
+    Anthropic = (await import(SDK_URL)).default;
+    const client = new Anthropic({ apiKey: claudeKey(), dangerouslyAllowBrowser: true });
+    const system = transcriptionPrompt(styleFiles, example);
+    const messages = [{
+      role: 'user',
+      content: [
+        ...images.flatMap((data, i) => [
+          { type: 'text', text: `Page ${i + 1}:` },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }
+        ]),
+        { type: 'text', text: `Transcribe this score (${plural(images.length, 'page')}) into a LilyPond file in the house style.` }
+      ]
+    }];
+    status('Claude is reading the score…');
+    let result = await askClaude(Anthropic, client, system, messages, abort.signal, status);
+
+    status('Checking it with LilyPond…');
+    const compiler = await lilyEngine(({ loadedBytes, totalBytes }) => status(`Downloading LilyPond for checking (once only)… ${Math.round(loadedBytes / 1e6)} of ${Math.round(totalBytes / 1e6)} MB`));
+    const name = freeName(result.file_name || result.title, taken);
+    const lyPath = [g.srcPath, name + '.ly'].filter(Boolean).join('/');
+    let check = await compileLy(compiler, support, result.lilypond, lyPath, abort.signal);
+    const errors = c => lilyMessages(c.log).filter(m => m.kind === 'error');
+    if (errors(check).length || !check.pdf) {
+      status('LilyPond found problems. Asking Claude to fix them…');
+      const report = errors(check).slice(0, 40).map(m => `${m.file.split('/').pop()}:${m.line}:${m.col}: ${m.msg}`).join('\n') || check.log.slice(-3000);
+      messages.push(
+        { role: 'assistant', content: result.content },
+        { role: 'user', content: `LilyPond 2.26.0 reported these errors in your file:\n\n${report}\n\nFix them and give the whole corrected file in the same format. Keep the transcription the same apart from the fixes.` }
+      );
+      const fixed = await askClaude(Anthropic, client, system, messages, abort.signal, status);
+      result = { ...fixed, title: fixed.title || result.title, notes: [result.notes, fixed.notes].filter(Boolean).join(' ') };
+      status('Checking it with LilyPond again…');
+      check = await compileLy(compiler, support, result.lilypond, lyPath, abort.signal);
+    }
+    disposeEngine();
+
+    const id = 'new:' + name;
+    await savePhotos(name, photos.pages);
+    state.drafts ||= {};
+    state.drafts[id] = {
+      text: result.lilypond, base: '', baseSha: null, lyPath, isNew: true,
+      title: (result.title || name.replace(/_/g, ' ')).trim(), notes: result.notes || '', photos: photos.pages.length, created: Date.now()
+    };
+    await flush();
+    photos.pages = [];
+    E.pendingPreview = { text: result.lilypond, log: check.log, pdf: check.pdf, messages: lilyMessages(check.log) };
+    sheetLocked = false;
+    openEditor(id);
+  } catch (err) {
+    disposeEngine();
+    if (abort.signal.aborted) return;
+    console.error(err);
+    sheetLocked = false;
+    openSheet(`<h2>Couldn’t convert the photos</h2><p>${esc(claudeErrorMessage(Anthropic, err))}</p>
+      <div class="stack"><button class="btn primary" id="cv-back">Back to the photos</button><button class="btn" data-act="claude-settings">Claude API key</button></div>`);
+    $('#cv-back').addEventListener('click', photoSheet);
+  }
+}
+
+$('#pick-camera').addEventListener('change', e => { const f = e.target.files; if (f?.length) addPhotos(f); e.target.value = ''; });
+$('#pick-photos').addEventListener('change', e => { const f = e.target.files; if (f?.length) addPhotos(f); e.target.value = ''; });
+
 /* ---------- backup ---------- */
 
 function downloadBackup() {
@@ -1559,7 +1890,7 @@ function downloadBackup() {
     programmes: state.programmes,
     songs: songs().map(({ id, key, file, title, cats, notes }) => ({ id, key, file, title, cats, notes })),
     // Never put the GitHub access token in a backup file.
-    settings: { ...state.settings, github: state.settings.github && { ...state.settings.github, token: undefined } }
+    settings: { ...state.settings, claude: undefined, github: state.settings.github && { ...state.settings.github, token: undefined } }
   };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
@@ -1592,8 +1923,8 @@ async function restoreBackup(file) {
     if (at >= 0) state.programmes[at] = p; else state.programmes.push(p);
   }
   if (data.settings) {
-    const token = state.settings.github?.token;
-    state.settings = { ...state.settings, ...data.settings };
+    const token = state.settings.github?.token, claude = state.settings.claude;
+    state.settings = { ...state.settings, ...data.settings, claude };
     if (state.settings.github && token && !state.settings.github.token) state.settings.github.token = token;
   }
   dropNonChristmas(); // older backups include it
@@ -1666,6 +1997,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (t.closest('[data-more]')) return songSheet(t.closest('[data-more]').dataset.more);
+  if (t.closest('[data-new-draft]')) return openEditor(t.closest('[data-new-draft]').dataset.newDraft);
   if (t.closest('[data-cat]')) { ui.cat = t.closest('[data-cat]').dataset.cat; updateSongList(); return; }
   if (t.closest('[data-prog]')) return openProgramme(t.closest('[data-prog]').dataset.prog);
   if (t.closest('[data-play]') && p) {
@@ -1697,6 +2029,9 @@ document.addEventListener('click', e => {
     case 'github-import': return state.settings.github ? importFromGitHub() : githubSheet(); // first time: confirm the settings
     case 'github-settings': return githubSheet();
     case 'engine-download': return downloadEngine();
+    case 'photo-camera': return $('#pick-camera').click();
+    case 'photo-pick': return $('#pick-photos').click();
+    case 'claude-settings': return claudeSheet();
     case 'sheet-edit-ly': return openEditor(t.closest('[data-id]').dataset.id);
     case 'select-start': ui.select = new Set(); return render();
     case 'select-done': ui.select = null; return render();

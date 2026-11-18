@@ -385,3 +385,11 @@ body.editor-open { overflow: hidden; }
 .ed-actions { display: flex; gap: 8px; }
 .ed-actions .btn { flex: 1; }
 @media (prefers-color-scheme: dark) { .ed-bar { background: #262626; color: var(--ink); } }
+
+/* ---------- new score from photos ---------- */
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.photo-grid figure { position: relative; margin: 0; }
+.photo-grid img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.photo-grid figcaption { font-size: 12px; color: var(--muted); text-align: center; margin-top: 2px; }
+.photo-grid .icon-btn { position: absolute; top: 2px; right: 2px; background: rgb(0 0 0 / .55); color: #fff; border-radius: 50%; width: 28px; height: 28px; min-width: 0; padding: 0; }
+.ed-notes { margin: 6px 0 0; font-size: 13.5px; }

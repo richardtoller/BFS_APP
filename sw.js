@@ -1,6 +1,6 @@
 // Offline support for the Scores app: cache the app shell (including the PDF renderer),
 // serve cache-first and refresh in the background. The scores themselves live in IndexedDB.
-const CACHE = 'scores-v20';
+const CACHE = 'scores-v21';
 // The LilyPond engine (about 30 MB) is cached separately, only once it is first used, and
 // kept across app updates. Change this name when the engine in vendor/lilypond-wasm changes.
 const ENGINE_CACHE = 'lilypond-engine-2.26.0';
