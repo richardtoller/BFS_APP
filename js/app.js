@@ -254,7 +254,7 @@ function renderSongs() {
       <div class="welcome">
         <div class="welcome-art" aria-hidden="true">𝄞</div>
         <h2>Add your scores</h2>
-        <p>Choose your <b>songs/_BFS</b> folder, or download the scores from GitHub. The app copies the PDFs and pictures into its own storage on this phone, so they open instantly, even offline.</p>
+        <p>Import a folder of scores from this phone, or download them from GitHub. The app copies the PDFs and pictures into its own storage on this phone, so they open instantly, even offline.</p>
         <button class="btn primary big" data-act="import-folder">Import scores</button>
         <button class="btn primary big" data-act="github-import">Download from GitHub</button>
         <button class="btn" data-act="import-files">Choose files instead</button>
@@ -747,7 +747,7 @@ async function renderLibrary() {
     </section>
     <section class="card">
       <h2>Backup</h2>
-      <p class="hint">Saves your programmes, categories and song titles (not the score files, which stay in your _BFS folder or on GitHub). After restoring on a new phone, import the folder or download from GitHub again and everything will match up. Your GitHub access token isn't included: enter it again in GitHub settings.</p>
+      <p class="hint">Saves your programmes, categories and song titles (not the score files, which stay on your phone or on GitHub). After restoring on a new phone, import your scores or download them from GitHub again and everything will match up. Your GitHub access token isn't included: enter it again in GitHub settings.</p>
       <div class="stack">
         <button class="btn" data-act="backup">Download backup</button>
         <button class="btn" data-act="restore">Restore from backup…</button>
@@ -756,7 +756,7 @@ async function renderLibrary() {
     </section>
     ${all.length ? `<section class="card">
       <h2>Remove all scores</h2>
-      <p class="hint">Clears every score from the app to free up space or start again. Your _BFS folder isn't touched, and programmes and categories are kept.</p>
+      <p class="hint">Clears every score from the app to free up space or start again. The original files on your phone or on GitHub aren't touched, and programmes and categories are kept.</p>
       <button class="btn danger" data-act="wipe">Remove all scores…</button>
     </section>` : ''}`;
   $('#set-fs').addEventListener('change', e => { state.settings.fullscreen = e.target.checked; save(); });
@@ -1705,7 +1705,7 @@ document.addEventListener('click', e => {
     case 'sel-prog': return addToProgrammeSheet([...ui.select]);
     case 'sel-del': {
       const ids = [...ui.select];
-      return confirmSheet(`Remove ${plural(ids.length, 'song')}?`, 'They\'ll be removed from this app and from any programmes that use them. The files in your _BFS folder are not touched.', 'Remove', async () => {
+      return confirmSheet(`Remove ${plural(ids.length, 'song')}?`, 'They\'ll be removed from this app and from any programmes that use them. The original files on your phone or on GitHub are not touched.', 'Remove', async () => {
         await deleteSongs(ids);
         ui.select = null;
       });
@@ -1714,7 +1714,7 @@ document.addEventListener('click', e => {
     case 'sheet-addprog': return addToProgrammeSheet([t.closest('[data-id]').dataset.id]);
     case 'sheet-delsong': {
       const id = t.closest('[data-id]').dataset.id;
-      return confirmSheet(`Remove “${esc(state.songs[id].title)}”?`, 'It will be removed from this app. The file in your _BFS folder is not touched; import the folder again to bring it back.', 'Remove', () => deleteSongs([id]));
+      return confirmSheet(`Remove “${esc(state.songs[id].title)}”?`, 'It will be removed from this app. The original file on your phone or on GitHub is not touched; import it again to bring it back.', 'Remove', () => deleteSongs([id]));
     }
     case 'new-prog': return programmeDetailsSheet(null);
     case 'prog-edit': ui.progEdit = !ui.progEdit; return render();
@@ -1750,7 +1750,7 @@ document.addEventListener('click', e => {
     case 'backup': return downloadBackup();
     case 'restore': return $('#pick-backup').click();
     case 'wipe':
-      return confirmSheet('Remove all scores?', `All ${plural(songs().length, 'score')} are removed from this app, freeing their storage. The files in your _BFS folder are not touched. Programmes and categories are kept: if you import the scores again, their titles, categories and places in programmes come back.`, 'Remove all scores', async () => {
+      return confirmSheet('Remove all scores?', `All ${plural(songs().length, 'score')} are removed from this app, freeing their storage. The original files on your phone or on GitHub are not touched. Programmes and categories are kept: if you import the scores again, their titles, categories and places in programmes come back.`, 'Remove all scores', async () => {
         // Remember each song so a later import reconnects it (see applyPending).
         state.pending ||= {};
         for (const x of songs()) state.pending[x.key] = { id: x.id, key: x.key, title: x.title, cats: x.cats, notes: x.notes };
