@@ -258,7 +258,7 @@ function renderSongs() {
         <button class="btn primary big" data-act="import-folder">Import scores</button>
         <button class="btn primary big" data-act="github-import">Download from GitHub</button>
         <button class="btn" data-act="import-files">Choose files instead</button>
-        <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. If you can only pick files, open that folder, then use ⋮ › <b>Select all</b>.</p>
+        <p class="hint">In the picker, open the folder to import. If you can only pick files, open that folder, then use ⋮ › <b>Select all</b>.</p>
       </div>`;
     return;
   }
