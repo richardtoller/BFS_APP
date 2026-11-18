@@ -718,7 +718,7 @@ async function renderLibrary() {
         <button class="btn primary" data-act="import-folder">Import from phone</button>
         <button class="btn" data-act="import-files">Add individual files</button>
       </div>
-      <p class="hint">In the picker, open <b>Internal shared storage › songs › _BFS</b>. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import from phone</b> again and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
+      <p class="hint">In the picker, open the folder to import. Only the scores directly in the folder you choose are imported, not those in its sub-folders. To add a sub-folder's scores, tap <b>Import from phone</b> again and open that sub-folder instead. Re-import whenever you add or change scores: new files are added and changed ones updated, and your titles, categories and programmes are kept. If you can only pick files, open the folder and use ⋮ › <b>Select all</b>.</p>
       <h3>From GitHub</h3>
       <p class="muted small">${esc(ghConfig().owner)}/${esc(ghLabel(ghConfig()))}${ghConfig().token ? ' · token saved' : ''}</p>
       <div class="stack">
