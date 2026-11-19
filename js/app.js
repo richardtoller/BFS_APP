@@ -288,7 +288,7 @@ function updateSongList() {
     <li class="row ${ui.select?.has(s.id) ? 'selected' : ''}" data-song="${s.id}">
       ${ui.select ? '<span class="check" aria-hidden="true"></span>' : ''}
       <button class="row-main" data-open="${s.id}">
-        <span class="row-title">${esc(s.title)}</span>
+        <span class="row-title song-title">${esc(s.title)}</span>
         <span class="row-meta">${catTags(s)}<span class="kind">${s.kind === 'pdf' ? 'PDF' : 'Image'}</span>${s.source === 'github' ? '<span class="kind">· ☁ GitHub</span>' : s.folder && s.folder.toLowerCase() !== '_bfs' ? `<span class="kind">· 📁 ${esc(s.folder)}</span>` : ''}</span>
         ${notesSnippet(s)}
       </button>
@@ -489,7 +489,7 @@ function renderProgramme() {
     const s = state.songs[it.songId];
     return `<li class="row" data-idx="${idx}">${handle}<span class="num">${n}</span>
       <button class="row-main" data-play="${it.id}" ${s ? '' : 'disabled'}>
-        <span class="row-title">${esc(s?.title ?? it.title)}</span>
+        <span class="row-title song-title">${esc(s?.title ?? it.title)}</span>
         <span class="row-meta">${s ? catTags(s) : '<span class="tag warn">Not in library</span>'}</span>
         ${s ? notesSnippet(s) : ''}
       </button>${remove}</li>`;
@@ -565,7 +565,7 @@ function pickSongsSheet(progId) {
     $('#pick-list').innerHTML = list.length ? list.map(s => `
       <li class="row ${order.has(s.id) ? 'picked' : ''}"><button class="row-main" data-pick="${s.id}">
         <span class="pick-num">${order.get(s.id) ?? '+'}</span>
-        <span class="row-title">${esc(s.title)}</span>
+        <span class="row-title song-title">${esc(s.title)}</span>
       </button></li>`).join('') : `<li class="empty">${songs().length ? 'No songs match.' : 'Your library is empty. Import scores from the Library tab first.'}</li>`;
   };
   draw();
@@ -738,7 +738,7 @@ async function renderLibrary() {
         <button class="btn" data-act="claude-settings">Claude API key${claudeKey() ? ' · saved' : ''}</button>
       </div>
       ${newDrafts.length ? `<h3>Not published yet</h3><ul class="list">${newDrafts.map(([id, d]) => `
-        <li class="row"><button class="row-main" data-new-draft="${esc(id)}"><span class="row-title">${esc(d.title)}</span>
+        <li class="row"><button class="row-main" data-new-draft="${esc(id)}"><span class="row-title song-title">${esc(d.title)}</span>
         <span class="row-meta">${esc(d.lyPath)} · ${plural(d.photos || 0, 'photo')}</span></button><span class="chev" aria-hidden="true">›</span></li>`).join('')}</ul>` : ''}
     </section>
     <section class="card">

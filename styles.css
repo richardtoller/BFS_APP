@@ -175,6 +175,7 @@ main { max-width: 760px; margin: 0 auto; padding: 12px 16px 24px; }
 }
 .row-main.static { cursor: default; }
 .row-title { font: 600 17px/1.25 var(--serif); overflow-wrap: anywhere; }
+.row-title.song-title { color: var(--t-blue); } /* song names: the same blue as the Current tag */
 .row-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .tag { padding: 1px 8px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; }
 .tag.red { background: var(--t-red-bg); color: var(--t-red); }
