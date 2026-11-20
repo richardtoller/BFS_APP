@@ -67,12 +67,16 @@ const songs = () => Object.values(state.songs);
 const catName = id => state.categories.find(c => c.id === id)?.name ?? '';
 const programme = id => state.programmes.find(p => p.id === id);
 
+// Song lists are alphabetical, ignoring a leading "The", so "The Blacksmith" sorts under B.
+const sortTitle = t => t.replace(/^the\s+/i, '');
+const byTitle = (a, b) => collator.compare(sortTitle(a.title), sortTitle(b.title)) || collator.compare(a.title, b.title);
+
 function filterSongs(q, cat) {
   const words = norm(q).split(' ').filter(Boolean);
   return songs()
     .filter(s => cat === 'all' || (cat === 'none' ? !s.cats.length : s.cats.includes(cat)))
     .filter(s => { const t = norm(s.title + ' ' + s.file + ' ' + (s.notes || '')); return words.every(w => t.includes(w)); })
-    .sort((a, b) => collator.compare(a.title, b.title));
+    .sort(byTitle);
 }
 
 /* ---------- Android back button: each sheet / sub-screen / viewer is a history entry ---------- */
