@@ -730,12 +730,12 @@ async function renderLibrary() {
       <p class="muted small" id="engine-info"></p>
     </section>
     <section class="card">
-      <h2>New score from photos or files</h2>
-      <p class="hint">Photograph a score, or choose a PDF, picture or music file (MusicXML, ABC or LilyPond) from anywhere on the phone, and Claude (Anthropic's AI model) writes it as a LilyPond file in the BFS house style. You check it and correct it in the editor, then publish it to GitHub, which makes the PDF. Uses your own Claude API key; each conversion costs a little.</p>
+      <h2>Import and convert</h2>
+      <p class="hint">Photograph a score, or choose PDFs, pictures or music files (MusicXML, ABC or LilyPond) from the phone or Google Drive, and Claude (Anthropic's AI model) writes it as a LilyPond file in the BFS house style. You check it and correct it in the editor, then publish it to GitHub, which makes the PDF. Uses your own Claude API key; each conversion costs a little.</p>
       <div class="stack">
         <button class="btn primary" data-act="photo-camera">Take photos</button>
         <button class="btn" data-act="photo-pick">Choose photos</button>
-        <button class="btn" data-act="photo-file">Choose a file</button>
+        <button class="btn" data-act="photo-file">Choose files (phone or Google Drive)</button>
         <button class="btn" data-act="claude-settings">Claude API key${claudeKey() ? ' · saved' : ''}</button>
       </div>
       ${newDrafts.length ? `<h3>Not published yet</h3><ul class="list">${newDrafts.map(([id, d]) => `
@@ -1727,7 +1727,7 @@ function photoSheet() {
     ? `<img src="${photoUrls[i]}" alt="Page ${i + 1}"><figcaption>${i + 1}. Photo</figcaption>`
     : `<div class="file-tile"><span aria-hidden="true">${p.kind === 'pdf' ? '📄' : '🎼'}</span>${esc(p.name)}</div><figcaption>${i + 1}. ${p.kind === 'pdf' ? 'PDF' : 'Notation file'}</figcaption>`;
   openSheet(`
-    <h2>New score from photos or files</h2>
+    <h2>Import and convert</h2>
     <p class="muted small">${n ? `${originalsLabel(photos.pages)}, in this order. Add one photo per page, or a file with the whole score.` : 'Nothing added yet.'}</p>
     <div class="photo-grid">${photos.pages.map((p, i) => `
       <figure>${tile(p, i)}
@@ -1735,10 +1735,10 @@ function photoSheet() {
     <div class="stack">
       <button class="btn" data-act="photo-camera">${n ? 'Photograph another page' : 'Take a photo'}</button>
       <button class="btn" data-act="photo-pick">Add from your photos</button>
-      <button class="btn" data-act="photo-file">Add a file (PDF, picture or music file)</button>
+      <button class="btn" data-act="photo-file">Add files (phone or Google Drive)</button>
       <button class="btn primary" id="ph-go" ${n ? '' : 'disabled'}>Convert to LilyPond</button>
     </div>
-    <p class="hint">A file can be a PDF of the score, a picture, or a MusicXML, ABC or LilyPond file. Notation files give the most accurate result; for photos, photograph each page flat and square-on, in good light, filling the frame. Claude reads them, the app checks the result with LilyPond, and it opens in the editor for you to compare with the originals and correct before publishing.</p>`,
+    <p class="hint">Files can be PDFs of the score, pictures, or MusicXML, ABC or LilyPond files. To use Google Drive, tap <b>☰</b> in the file picker, choose <b>Drive</b>, open the folder and select the files (touch and hold to select several). Notation files give the most accurate result; for photos, photograph each page flat and square-on, in good light, filling the frame. Claude reads them, the app checks the result with LilyPond, and it opens in the editor for you to compare with the originals and correct before publishing.</p>`,
     { onClose: () => { photoUrls.forEach(u => URL.revokeObjectURL(u)); photoUrls = []; render(); } });
   $('#ph-go').addEventListener('click', convertPhotos);
   $('#sheet-body').addEventListener('click', e => {
