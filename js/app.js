@@ -1694,7 +1694,12 @@ const MAX_PDF = 20e6, MAX_TEXT = 2e6;
 
 // photos.pages holds the originals for one score: { kind: 'image' | 'pdf' | 'text', blob, name }.
 async function addPhotos(fileList) {
-  for (const f of [...fileList]) {
+  const files = [...fileList];
+  // Read every file now, while the app still has access to it: a file from Google Drive (or another
+  // cloud provider) is only fetched when it's read, and reading it later can fail ("network error").
+  const reading = `Reading ${files.length === 1 ? files[0].name : plural(files.length, 'file')}…`;
+  if (files.length) toast(reading, 60000);
+  for (const f of files) {
     const kind = sourceKind(f);
     try {
       if (/\.mxl$/i.test(f.name)) { toast(`${f.name} is compressed MusicXML. Export it as uncompressed MusicXML (.musicxml) instead.`, 6000); continue; }
@@ -1702,13 +1707,19 @@ async function addPhotos(fileList) {
       if (kind === 'image') photos.pages.push({ kind, name: f.name, blob: await shrinkPhoto(f) });
       else if (kind === 'pdf') {
         if (f.size > MAX_PDF) { toast(`${f.name} is too big (over 20 MB).`, 5000); continue; }
-        photos.pages.push({ kind, name: f.name, blob: new Blob([f], { type: 'application/pdf' }) });
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        if (String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') { toast(`${f.name} isn’t a PDF the app can read.`, 5000); continue; }
+        photos.pages.push({ kind, name: f.name, blob: new Blob([bytes], { type: 'application/pdf' }) });
       } else {
         if (f.size > MAX_TEXT) { toast(`${f.name} is too big (over 2 MB).`, 5000); continue; }
         photos.pages.push({ kind, name: f.name, blob: new Blob([await f.text()], { type: 'text/plain' }) });
       }
-    } catch (err) { console.error(err); toast(`Couldn’t read ${f.name}`); }
+    } catch (err) {
+      console.error(err);
+      toast(`Couldn’t read ${f.name}. If it’s on Google Drive, check you’re online and try again, or make it available offline in the Drive app first.`, 8000);
+    }
   }
+  if ($('#toast').textContent === reading) $('#toast').hidden = true; // keep any message about a file that failed
   photoSheet();
 }
 
