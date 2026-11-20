@@ -1810,6 +1810,18 @@ async function exampleScore(g) {
 }
 
 async function askClaude(Anthropic, client, system, messages, signal, status) {
+  try {
+    return await askClaudeOnce(Anthropic, client, system, messages, signal, status);
+  } catch (err) {
+    if (signal.aborted || !isDroppedConnection(Anthropic, err)) throw err;
+    console.warn('Connection dropped; retrying once', err);
+    status('The connection dropped. Trying again…');
+    await sleep(3000);
+    return askClaudeOnce(Anthropic, client, system, messages, signal, status);
+  }
+}
+
+async function askClaudeOnce(Anthropic, client, system, messages, signal, status) {
   const stream = client.beta.messages.stream({
     model: CLAUDE_MODEL,
     max_tokens: 64000,
@@ -1832,13 +1844,21 @@ async function askClaude(Anthropic, client, system, messages, signal, status) {
   return { ...out, content: msg.content };
 }
 
+// The connection dropped part-way (e.g. the phone slept, the app went into the background or the
+// network changed). The SDK retries failures before a reply starts; a drop mid-reply surfaces as a
+// plain TypeError ("network error") from reading the stream.
+const isDroppedConnection = (Anthropic, err) =>
+  (Anthropic && err instanceof Anthropic.APIConnectionError) ||
+  (!(Anthropic && err instanceof Anthropic.APIError && err.status) && /network ?error|failed to fetch|load failed|connection (error|reset|closed)|terminated/i.test(String(err?.message)));
+const DROPPED = 'The connection to Anthropic failed or dropped. Check you’re online. A connection can also drop while Claude is working if the phone’s screen turns off, the app goes into the background, or the phone switches between Wi-Fi and mobile data, so keep the app open with the screen on, and try again.';
+
 function claudeErrorMessage(Anthropic, err) {
+  if (isDroppedConnection(Anthropic, err)) return DROPPED;
   if (!Anthropic) return err.message;
   if (err instanceof Anthropic.AuthenticationError) return 'Anthropic didn’t accept the API key. Check it in Claude API key settings.';
   if (err instanceof Anthropic.PermissionDeniedError) return 'This API key isn’t allowed to use Claude. Check the key and your account in the Claude Console.';
   if (err instanceof Anthropic.RateLimitError) return 'Too many requests, or the account’s usage limit was reached. Wait a minute and try again, or check Billing in the Claude Console.';
   if (err instanceof Anthropic.BadRequestError) return `Anthropic couldn’t process the request: ${err.message}. If it mentions credit or billing, add credit in the Claude Console.`;
-  if (err instanceof Anthropic.APIConnectionError) return 'Couldn’t connect to Anthropic. Check you have an internet connection.';
   if (err instanceof Anthropic.APIError) return `Anthropic replied with an error (${err.status ?? 'unknown'}). Try again in a minute.`;
   return err.message;
 }
@@ -1858,12 +1878,15 @@ async function convertPhotos() {
     <button class="btn" id="cv-cancel">Cancel</button>`, { locked: true });
   $('#cv-cancel').addEventListener('click', () => { abort.abort(); sheetLocked = false; photoSheet(); });
   const status = t => { const el = $('#cv-status'); if (el) el.textContent = t; };
-  let Anthropic;
+  let Anthropic, step = 'getting the house style from GitHub', wakeLock = null;
+  // Keep the screen on: if the phone sleeps, the connection to Claude can drop.
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported or not allowed */ }
   try {
     status('Getting the house style from GitHub…');
     const support = await lilySupportFiles(g);
     const { example, taken } = await exampleScore(g);
     const styleFiles = Object.entries(support).filter(([, f]) => typeof f.data === 'string').map(([p, f]) => [p, f.data]);
+    step = 'preparing the photos and files';
     status('Preparing the originals…');
     const pages = photos.pages;
     if (pages.reduce((t, p) => t + p.blob.size, 0) > 22e6) throw new Error('Together, the photos and files are too big to send (over 22 MB). Try fewer at a time.');
@@ -1882,9 +1905,11 @@ async function convertPhotos() {
         { type: 'text', text: `Transcribe this score (${originalsLabel(pages)}) into a LilyPond file in the house style.` }
       ]
     }];
+    step = 'waiting for Claude';
     status('Claude is reading the score…');
     let result = await askClaude(Anthropic, client, system, messages, abort.signal, status);
 
+    step = 'checking it with LilyPond';
     status('Checking it with LilyPond…');
     const compiler = await lilyEngine(({ loadedBytes, totalBytes }) => status(`Downloading LilyPond for checking (once only)… ${Math.round(loadedBytes / 1e6)} of ${Math.round(totalBytes / 1e6)} MB`));
     const name = freeName(result.file_name || result.title, taken);
@@ -1892,6 +1917,7 @@ async function convertPhotos() {
     let check = await compileLy(compiler, support, result.lilypond, lyPath, abort.signal);
     const errors = c => lilyMessages(c.log).filter(m => m.kind === 'error');
     if (errors(check).length || !check.pdf) {
+      step = 'waiting for Claude to fix LilyPond’s errors';
       status('LilyPond found problems. Asking Claude to fix them…');
       const report = errors(check).slice(0, 40).map(m => `${m.file.split('/').pop()}:${m.line}:${m.col}: ${m.msg}`).join('\n') || check.log.slice(-3000);
       messages.push(
@@ -1900,10 +1926,12 @@ async function convertPhotos() {
       );
       const fixed = await askClaude(Anthropic, client, system, messages, abort.signal, status);
       result = { ...fixed, title: fixed.title || result.title, notes: [result.notes, fixed.notes].filter(Boolean).join(' ') };
+      step = 'checking it with LilyPond';
       status('Checking it with LilyPond again…');
       check = await compileLy(compiler, support, result.lilypond, lyPath, abort.signal);
     }
     disposeEngine();
+    step = 'saving the new score';
 
     const id = 'new:' + name;
     await savePhotos(name, photos.pages);
@@ -1924,8 +1952,11 @@ async function convertPhotos() {
     console.error(err);
     sheetLocked = false;
     openSheet(`<h2>Couldn’t convert the score</h2><p>${esc(claudeErrorMessage(Anthropic, err))}</p>
+      <p class="muted small">This happened while ${esc(step)}.</p>
       <div class="stack"><button class="btn primary" id="cv-back">Back</button><button class="btn" data-act="claude-settings">Claude API key</button></div>`);
     $('#cv-back').addEventListener('click', photoSheet);
+  } finally {
+    wakeLock?.release().catch(() => {});
   }
 }
 
