@@ -792,20 +792,18 @@ const sameKey = (oldKey, key) => oldKey === key || (!oldKey.includes('/') && key
 // How earlier versions turned a file name into a title (kept to recognise titles nobody has renamed).
 const rawTitleFromFile = name => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-// Title case: capitalise each word except short joining words (unless first or last).
+// Song names: every word starts with a capital letter, including short words like "of" and "the".
 // Words that already contain a capital letter are left as they are, e.g. "BWV" or "McCartney".
-const SMALL_WORDS = new Set('a an and as at but by for from in into nor o’ of on or over the to up upon via with'.split(' '));
 const CONTRACTIONS = { heres: 'here’s', theres: 'there’s', twas: '’twas', tis: '’tis', dont: 'don’t', wont: 'won’t', cant: 'can’t', im: 'i’m', ive: 'i’ve', youre: 'you’re', whats: 'what’s', thats: 'that’s', oer: 'o’er', neer: 'ne’er', eer: 'e’er' };
 const capFirst = w => w.replace(/^([^a-z]*)([a-z])/, (m, pre, c) => pre + c.toUpperCase());
 function titleCase(text) {
   const words = text.split(' ');
   return words.map((w, i) => {
-    if (/[A-Z]/.test(w)) return w;
     if (i === 0 && w === 'its') w = 'it’s'; // "its time to go now"
     w = CONTRACTIONS[w] ?? w;
     if (w === 'i' || w === 'o') return w.toUpperCase();
-    if (i > 0 && i < words.length - 1 && SMALL_WORDS.has(w)) return w;
-    return w.split('-').map(capFirst).join('-');
+    // Each part of a hyphenated word too ("Ding-Dong"); parts with a capital already are kept.
+    return w.split('-').map(part => /[A-Z]/.test(part) ? part : capFirst(part)).join('-');
   }).join(' ');
 }
 const titleFromFile = name => titleCase(rawTitleFromFile(name));
@@ -1860,7 +1858,7 @@ async function convertPhotos() {
     state.drafts ||= {};
     state.drafts[id] = {
       text: result.lilypond, base: '', baseSha: null, lyPath, isNew: true,
-      title: (result.title || name.replace(/_/g, ' ')).trim(), notes: result.notes || '', photos: photos.pages.length, created: Date.now()
+      title: titleCase((result.title || name.replace(/_/g, ' ')).trim().replace(/\s+/g, ' ')), notes: result.notes || '', photos: photos.pages.length, created: Date.now()
     };
     await flush();
     photos.pages = [];
