@@ -1738,7 +1738,7 @@ function photoSheet() {
       <button class="btn" data-act="photo-file">Add files (phone or Google Drive)</button>
       <button class="btn primary" id="ph-go" ${n ? '' : 'disabled'}>Convert to LilyPond</button>
     </div>
-    <p class="hint">Files can be PDFs of the score, pictures, or MusicXML, ABC or LilyPond files. To use Google Drive, tap <b>☰</b> in the file picker, choose <b>Drive</b>, open the folder and select the files (touch and hold to select several). Notation files give the most accurate result; for photos, photograph each page flat and square-on, in good light, filling the frame. Claude reads them, the app checks the result with LilyPond, and it opens in the editor for you to compare with the originals and correct before publishing.</p>`,
+    <p class="hint">Files can be PDFs of the score, pictures, or MusicXML, ABC or LilyPond files. To use Google Drive: if your phone first offers Camera or Files, choose <b>Files</b>; then tap <b>☰</b> (top left), choose <b>Drive</b>, open the folder and select the files (touch and hold to select several). Notation files give the most accurate result; for photos, photograph each page flat and square-on, in good light, filling the frame. Claude reads them, the app checks the result with LilyPond, and it opens in the editor for you to compare with the originals and correct before publishing.</p>`,
     { onClose: () => { photoUrls.forEach(u => URL.revokeObjectURL(u)); photoUrls = []; render(); } });
   $('#ph-go').addEventListener('click', convertPhotos);
   $('#sheet-body').addEventListener('click', e => {
