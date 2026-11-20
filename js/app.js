@@ -730,16 +730,17 @@ async function renderLibrary() {
       <p class="muted small" id="engine-info"></p>
     </section>
     <section class="card">
-      <h2>New score from photos</h2>
-      <p class="hint">Photograph a score, and Claude (Anthropic's AI model) writes it as a LilyPond file in the BFS house style. You check it against the photos and correct it in the editor, then publish it to GitHub, which makes the PDF. Uses your own Claude API key; each conversion costs a little.</p>
+      <h2>New score from photos or files</h2>
+      <p class="hint">Photograph a score, or choose a PDF, picture or music file (MusicXML, ABC or LilyPond) from anywhere on the phone, and Claude (Anthropic's AI model) writes it as a LilyPond file in the BFS house style. You check it and correct it in the editor, then publish it to GitHub, which makes the PDF. Uses your own Claude API key; each conversion costs a little.</p>
       <div class="stack">
         <button class="btn primary" data-act="photo-camera">Take photos</button>
         <button class="btn" data-act="photo-pick">Choose photos</button>
+        <button class="btn" data-act="photo-file">Choose a file</button>
         <button class="btn" data-act="claude-settings">Claude API key${claudeKey() ? ' · saved' : ''}</button>
       </div>
       ${newDrafts.length ? `<h3>Not published yet</h3><ul class="list">${newDrafts.map(([id, d]) => `
         <li class="row"><button class="row-main" data-new-draft="${esc(id)}"><span class="row-title song-title">${esc(d.title)}</span>
-        <span class="row-meta">${esc(d.lyPath)} · ${plural(d.photos || 0, 'photo')}</span></button><span class="chev" aria-hidden="true">›</span></li>`).join('')}</ul>` : ''}
+        <span class="row-meta">${esc(d.lyPath)} · ${esc(d.originals || plural(d.photos || 0, 'photo'))}</span></button><span class="chev" aria-hidden="true">›</span></li>`).join('')}</ul>` : ''}
     </section>
     <section class="card">
       <h2>Categories</h2>
@@ -1250,7 +1251,7 @@ function edStatus(html, tone = '') {
   if (html != null) { el.innerHTML = html; el.className = `ed-status ${tone}`; return; }
   const p = E.preview, changed = E.d && E.d.text !== E.d.base;
   viewBtn.hidden = !p?.pdf;
-  const head = E.d?.isNew ? `<p class="ed-notes"><span class="tag amber">New score</span> Not published yet. Check it against the photos (⋯ › <b>View the photos</b>), then tap <b>Publish</b>.</p>${E.d.notes ? `<p class="ed-notes"><b>Claude’s notes:</b> ${esc(E.d.notes)}</p>` : ''}` : '';
+  const head = E.d?.isNew ? `<p class="ed-notes"><span class="tag amber">New score</span> Not published yet. Check it against the ${draftKinds(E.d).every(k => k === 'image') ? 'photos (⋯ › <b>View the photos</b>)' : 'originals'}, then tap <b>Publish</b>.</p>${E.d.notes ? `<p class="ed-notes"><b>Claude’s notes:</b> ${esc(E.d.notes)}</p>` : ''}` : '';
   let out = E.d?.isNew ? '' : changed ? '<span class="tag amber">Draft</span> Not published yet.' : 'No changes yet. Edit the LilyPond source above, then tap <b>Preview</b>.';
   if (p) {
     const errs = p.messages.filter(m => m.kind === 'error'), warns = p.messages.filter(m => m.kind === 'warning');
@@ -1551,7 +1552,7 @@ function editorMoreSheet() {
   openSheet(`
     <h2>${esc(E.src.lyPath)}</h2>
     <div class="stack">
-      ${E.d?.photos ? `<button class="btn" id="ed-photos">View the photos</button>` : ''}
+      ${E.d?.photos && draftKinds(E.d).some(k => k !== 'text') ? `<button class="btn" id="ed-photos">${draftKinds(E.d).every(k => k === 'image') ? 'View the photos' : 'View the originals'}</button>` : ''}
       <button class="btn" id="ed-wrap">${state.settings.edWrap ? 'Don’t wrap long lines' : 'Wrap long lines'}</button>
       <button class="btn" id="ed-gh">Preview on GitHub instead</button>
       <button class="btn danger" id="ed-discard" ${E.d && E.d.text !== E.d.base ? '' : 'disabled'}>${E.d?.isNew ? 'Discard this new score' : 'Discard my changes'}</button>
@@ -1564,10 +1565,10 @@ function editorMoreSheet() {
     $('#editor .ed-text')?.setAttribute('wrap', state.settings.edWrap ? 'soft' : 'off');
     closeSheet();
   });
-  $('#ed-photos')?.addEventListener('click', () => { sheetOnClose = () => viewPhotos(E.src.name, E.song.title, E.d.photos); closeSheet(); });
+  $('#ed-photos')?.addEventListener('click', () => { sheetOnClose = () => viewPhotos(E.src.name, E.song.title, draftKinds(E.d)); closeSheet(); });
   $('#ed-discard').addEventListener('click', async () => {
     if (E.d?.isNew) {
-      if (!confirm('Discard this new score? The photos and the LilyPond text are deleted.')) return;
+      if (!confirm('Discard this new score? Its photos or files and the LilyPond text are deleted from the app.')) return;
       delete state.drafts[E.id];
       await deletePhotos(E.src.name);
       E.d = null;
@@ -1624,7 +1625,7 @@ const TRANSCRIPTION_SCHEMA = {
 };
 
 function transcriptionPrompt(styleFiles, example) {
-  return `You transcribe photographs of sheet music into LilyPond source files for the BFS choir's collection of scores. Each file is engraved with LilyPond 2.26.0 from the repository's src/ folder, together with the shared house style file below.
+  return `You transcribe sheet music into LilyPond source files for the BFS choir's collection of scores. The music comes as photographs, as scanned or printed PDFs, or as notation files (MusicXML, ABC or LilyPond). Each file is engraved with LilyPond 2.26.0 from the repository's src/ folder, together with the shared house style file below.
 
 Write the file in the house conventions that the example score shows:
 - Start with \\version "2.26.0", then \\include "_bfs-style.ily", then the verseSize line with its comment, as in the example.
@@ -1633,7 +1634,7 @@ Write the file in the house conventions that the example score shows:
 - Verses printed below the music go in \\markup \\verseColumn or \\verseColumns, one string per line, each line starting with a capital letter, with " " between verses.
 - LilyPond 2.26 syntax only. Put a bar check (|) at every barline.
 
-Transcribe exactly what is on the page: pitches, rhythms, rests, key and time signatures and their changes, ties, slurs, dynamics, tempo marks, repeats and endings, lyrics with their syllable division, and any verse text. Don't add to or "correct" the music. Where something is hard to read, choose the most likely reading and say so in notes, with the bar number. The photos are the pages in order.
+Transcribe exactly what is in the original: pitches, rhythms, rests, key and time signatures and their changes, ties, slurs, dynamics, tempo marks, repeats and endings, lyrics with their syllable division, and any verse text. Don't add to or "correct" the music. Where something is hard to read, choose the most likely reading and say so in notes, with the bar number. Photos and PDF pages are given in order. A notation file already holds the exact music: carry it over faithfully and rewrite it in the house conventions.
 
 ${styleFiles.map(([path, text]) => `<style_file path="${path}">\n${text}\n</style_file>`).join('\n')}
 <example_score path="${example.path}">
@@ -1644,7 +1645,7 @@ ${example.text}
 function claudeSheet(then) {
   openSheet(`
     <h2>Claude API key</h2>
-    <p class="muted small">Turning photos into LilyPond uses Claude, Anthropic's AI model, through your own API key.</p>
+    <p class="muted small">Turning photos and files into LilyPond uses Claude, Anthropic's AI model, through your own API key.</p>
     <label class="field">API key<input id="cl-key" type="password" value="${esc(claudeKey())}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-…"></label>
     <p class="hint">Create a key at <b>platform.claude.com</b> › <b>Settings</b> › <b>API keys</b>, and add some credit under <b>Billing</b>. Each conversion is charged to that account: typically well under $1 for a few pages. The key is stored only in this app on this phone, is sent only to Anthropic, and isn't included in backups.</p>
     <div class="stack">
@@ -1680,33 +1681,64 @@ async function shrinkPhoto(file, maxSide = 2000) {
   return new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Couldn’t read the photo')), 'image/jpeg', 0.88));
 }
 
+// What a chosen file is, for Claude: a picture, a PDF, or a text notation file.
+const NOTATION_EXT = /\.(musicxml|xml|abc|ly|ily|txt)$/i;
+function sourceKind(f) {
+  if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) return 'pdf';
+  if (f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(f.name)) return 'image';
+  if (/\.(docx?|xlsx?|pptx?|odt|ods|odp|zip|mxl|mscz|sib|mid|midi)$/i.test(f.name)) return null; // binary formats
+  if (NOTATION_EXT.test(f.name) || ['text/plain', 'text/xml', 'application/xml', 'application/vnd.recordare.musicxml+xml'].includes(f.type)) return 'text';
+  return null;
+}
+const MAX_PDF = 20e6, MAX_TEXT = 2e6;
+
+// photos.pages holds the originals for one score: { kind: 'image' | 'pdf' | 'text', blob, name }.
 async function addPhotos(fileList) {
-  const files = [...fileList].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(f.name));
-  if (!files.length) { toast('No photos chosen'); return; }
-  for (const f of files) {
-    try { photos.pages.push(await shrinkPhoto(f)); }
-    catch (err) { console.error(err); toast(`Couldn’t read ${f.name}`); }
+  for (const f of [...fileList]) {
+    const kind = sourceKind(f);
+    try {
+      if (/\.mxl$/i.test(f.name)) { toast(`${f.name} is compressed MusicXML. Export it as uncompressed MusicXML (.musicxml) instead.`, 6000); continue; }
+      if (!kind) { toast(`${f.name} can’t be read. Choose a PDF, a picture, or a MusicXML, ABC or LilyPond file.`, 6000); continue; }
+      if (kind === 'image') photos.pages.push({ kind, name: f.name, blob: await shrinkPhoto(f) });
+      else if (kind === 'pdf') {
+        if (f.size > MAX_PDF) { toast(`${f.name} is too big (over 20 MB).`, 5000); continue; }
+        photos.pages.push({ kind, name: f.name, blob: new Blob([f], { type: 'application/pdf' }) });
+      } else {
+        if (f.size > MAX_TEXT) { toast(`${f.name} is too big (over 2 MB).`, 5000); continue; }
+        photos.pages.push({ kind, name: f.name, blob: new Blob([await f.text()], { type: 'text/plain' }) });
+      }
+    } catch (err) { console.error(err); toast(`Couldn’t read ${f.name}`); }
   }
   photoSheet();
+}
+
+// "2 photos", "1 PDF", "1 photo, 1 MusicXML file"…
+function originalsLabel(items) {
+  const n = k => items.filter(i => i.kind === k).length;
+  return [n('image') && plural(n('image'), 'photo'), n('pdf') && plural(n('pdf'), 'PDF'), n('text') && plural(n('text'), 'notation file')].filter(Boolean).join(', ');
 }
 
 let photoUrls = [];
 function photoSheet() {
   photoUrls.forEach(u => URL.revokeObjectURL(u));
-  photoUrls = photos.pages.map(b => URL.createObjectURL(b));
+  photoUrls = photos.pages.map(p => p.kind === 'image' ? URL.createObjectURL(p.blob) : '');
   const n = photos.pages.length;
+  const tile = (p, i) => p.kind === 'image'
+    ? `<img src="${photoUrls[i]}" alt="Page ${i + 1}"><figcaption>${i + 1}. Photo</figcaption>`
+    : `<div class="file-tile"><span aria-hidden="true">${p.kind === 'pdf' ? '📄' : '🎼'}</span>${esc(p.name)}</div><figcaption>${i + 1}. ${p.kind === 'pdf' ? 'PDF' : 'Notation file'}</figcaption>`;
   openSheet(`
-    <h2>New score from photos</h2>
-    <p class="muted small">${n ? `${plural(n, 'page')}, in this order. Add a photo for each page of the score.` : 'No pages yet.'}</p>
-    <div class="photo-grid">${photoUrls.map((u, i) => `
-      <figure><img src="${u}" alt="Page ${i + 1}"><figcaption>Page ${i + 1}</figcaption>
-        <button class="icon-btn" data-photo-del="${i}" aria-label="Remove page ${i + 1}">✕</button></figure>`).join('')}</div>
+    <h2>New score from photos or files</h2>
+    <p class="muted small">${n ? `${originalsLabel(photos.pages)}, in this order. Add one photo per page, or a file with the whole score.` : 'Nothing added yet.'}</p>
+    <div class="photo-grid">${photos.pages.map((p, i) => `
+      <figure>${tile(p, i)}
+        <button class="icon-btn" data-photo-del="${i}" aria-label="Remove ${i + 1}">✕</button></figure>`).join('')}</div>
     <div class="stack">
       <button class="btn" data-act="photo-camera">${n ? 'Photograph another page' : 'Take a photo'}</button>
       <button class="btn" data-act="photo-pick">Add from your photos</button>
+      <button class="btn" data-act="photo-file">Add a file (PDF, picture or music file)</button>
       <button class="btn primary" id="ph-go" ${n ? '' : 'disabled'}>Convert to LilyPond</button>
     </div>
-    <p class="hint">For the best result, photograph each page flat and square-on, in good light, filling the frame. Claude reads the photos, the app checks the result with LilyPond, and it opens in the editor for you to compare with the photos and correct before publishing.</p>`,
+    <p class="hint">A file can be a PDF of the score, a picture, or a MusicXML, ABC or LilyPond file. Notation files give the most accurate result; for photos, photograph each page flat and square-on, in good light, filling the frame. Claude reads them, the app checks the result with LilyPond, and it opens in the editor for you to compare with the originals and correct before publishing.</p>`,
     { onClose: () => { photoUrls.forEach(u => URL.revokeObjectURL(u)); photoUrls = []; render(); } });
   $('#ph-go').addEventListener('click', convertPhotos);
   $('#sheet-body').addEventListener('click', e => {
@@ -1725,13 +1757,19 @@ const blobToBase64 = blob => new Promise((resolve, reject) => {
 });
 
 const photoKey = (name, i) => `photo:${name}:${i}`;
-async function savePhotos(name, pages) { for (const [i, b] of pages.entries()) await db.put('files', photoKey(name, i), b); }
+// Drafts made before files were supported have only a photo count.
+const draftKinds = d => d.kinds || Array(d.photos || 0).fill('image');
+async function savePhotos(name, pages) { for (const [i, p] of pages.entries()) await db.put('files', photoKey(name, i), p.blob); }
 async function deletePhotos(name) { for (let i = 0; i < 40; i++) await db.del('files', photoKey(name, i)).catch(() => {}); }
-function viewPhotos(name, title, count) {
+// kinds: one entry per original ('image' | 'pdf' | 'text'); notation files can't be shown.
+function viewPhotos(name, title, kinds) {
+  const items = kinds.map((k, i) => ({ k, i })).filter(({ k }) => k !== 'text')
+    .map(({ k, i }) => ({ songId: photoKey(name, i), title: `${title}: ${k === 'pdf' ? 'PDF' : 'photo'} ${i + 1}` }));
+  if (!items.length) { toast('The original is a notation file, which can’t be shown here'); return; }
   pushLayer(closeViewer);
   openViewer($('#viewer'), {
-    items: Array.from({ length: count }, (_, i) => ({ songId: photoKey(name, i), title: `${title}: photo ${i + 1}` })), index: 0, label: 'Photos',
-    getSong: async id => { const blob = await db.get('files', id); return blob ? { title, kind: 'image', blob } : null; },
+    items, index: 0, label: 'Originals',
+    getSong: async id => { const blob = await db.get('files', id); return blob ? { title, kind: blob.type === 'application/pdf' ? 'pdf' : 'image', blob } : null; },
     fit: state.settings.fit, fullscreen: false,
     onFit: fit => { state.settings.fit = fit; save(); },
     onClose: back
@@ -1775,7 +1813,7 @@ async function askClaude(Anthropic, client, system, messages, signal, status) {
   let chars = 0;
   stream.on('text', t => { chars += t.length; status(`Writing the LilyPond file… ${(chars / 1000).toFixed(1)}k characters`); });
   const msg = await stream.finalMessage();
-  if (msg.stop_reason === 'refusal') throw new Error('Claude declined to transcribe these photos.');
+  if (msg.stop_reason === 'refusal') throw new Error('Claude declined to transcribe this score.');
   if (msg.stop_reason === 'max_tokens') throw new Error('The score was too long to transcribe in one go. Try fewer pages at a time.');
   const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
   let out;
@@ -1815,19 +1853,22 @@ async function convertPhotos() {
     const support = await lilySupportFiles(g);
     const { example, taken } = await exampleScore(g);
     const styleFiles = Object.entries(support).filter(([, f]) => typeof f.data === 'string').map(([p, f]) => [p, f.data]);
-    status('Preparing the photos…');
-    const images = await Promise.all(photos.pages.map(blobToBase64));
+    status('Preparing the originals…');
+    const pages = photos.pages;
+    if (pages.reduce((t, p) => t + p.blob.size, 0) > 22e6) throw new Error('Together, the photos and files are too big to send (over 22 MB). Try fewer at a time.');
+    const blocks = await Promise.all(pages.map(async (p, i) => {
+      if (p.kind === 'image') return [{ type: 'text', text: `Page ${i + 1} (photo):` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToBase64(p.blob) } }];
+      if (p.kind === 'pdf') return [{ type: 'text', text: `${i + 1}. PDF ${p.name}:` }, { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await blobToBase64(p.blob) } }];
+      return [{ type: 'text', text: `${i + 1}. Notation file ${p.name}:\n<file name="${p.name}">\n${await p.blob.text()}\n</file>` }];
+    }));
     Anthropic = (await import(SDK_URL)).default;
     const client = new Anthropic({ apiKey: claudeKey(), dangerouslyAllowBrowser: true });
     const system = transcriptionPrompt(styleFiles, example);
     const messages = [{
       role: 'user',
       content: [
-        ...images.flatMap((data, i) => [
-          { type: 'text', text: `Page ${i + 1}:` },
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }
-        ]),
-        { type: 'text', text: `Transcribe this score (${plural(images.length, 'page')}) into a LilyPond file in the house style.` }
+        ...blocks.flat(),
+        { type: 'text', text: `Transcribe this score (${originalsLabel(pages)}) into a LilyPond file in the house style.` }
       ]
     }];
     status('Claude is reading the score…');
@@ -1858,7 +1899,8 @@ async function convertPhotos() {
     state.drafts ||= {};
     state.drafts[id] = {
       text: result.lilypond, base: '', baseSha: null, lyPath, isNew: true,
-      title: titleCase((result.title || name.replace(/_/g, ' ')).trim().replace(/\s+/g, ' ')), notes: result.notes || '', photos: photos.pages.length, created: Date.now()
+      title: titleCase((result.title || name.replace(/_/g, ' ')).trim().replace(/\s+/g, ' ')), notes: result.notes || '', created: Date.now(),
+      photos: pages.length, kinds: pages.map(p => p.kind), originals: originalsLabel(pages)
     };
     await flush();
     photos.pages = [];
@@ -1870,14 +1912,15 @@ async function convertPhotos() {
     if (abort.signal.aborted) return;
     console.error(err);
     sheetLocked = false;
-    openSheet(`<h2>Couldn’t convert the photos</h2><p>${esc(claudeErrorMessage(Anthropic, err))}</p>
-      <div class="stack"><button class="btn primary" id="cv-back">Back to the photos</button><button class="btn" data-act="claude-settings">Claude API key</button></div>`);
+    openSheet(`<h2>Couldn’t convert the score</h2><p>${esc(claudeErrorMessage(Anthropic, err))}</p>
+      <div class="stack"><button class="btn primary" id="cv-back">Back</button><button class="btn" data-act="claude-settings">Claude API key</button></div>`);
     $('#cv-back').addEventListener('click', photoSheet);
   }
 }
 
 $('#pick-camera').addEventListener('change', e => { const f = e.target.files; if (f?.length) addPhotos(f); e.target.value = ''; });
 $('#pick-photos').addEventListener('change', e => { const f = e.target.files; if (f?.length) addPhotos(f); e.target.value = ''; });
+$('#pick-any').addEventListener('change', e => { const f = e.target.files; if (f?.length) addPhotos(f); e.target.value = ''; });
 
 /* ---------- backup ---------- */
 
@@ -2029,6 +2072,7 @@ document.addEventListener('click', e => {
     case 'engine-download': return downloadEngine();
     case 'photo-camera': return $('#pick-camera').click();
     case 'photo-pick': return $('#pick-photos').click();
+    case 'photo-file': return $('#pick-any').click();
     case 'claude-settings': return claudeSheet();
     case 'sheet-edit-ly': return openEditor(t.closest('[data-id]').dataset.id);
     case 'select-start': ui.select = new Set(); return render();
